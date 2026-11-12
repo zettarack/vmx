@@ -53,6 +53,15 @@ channel by default, the beta channel for releases before they are stable.
 Each upgrade is a new boot environment; a release that does not come up
 healthy goes back to the one before by itself.
 
+## Examples
+
+[examples/](examples/) holds scripts that each do one whole thing on a vmx
+host (a container, a row of Firecracker microVMs, a server from a template,
+a desktop, Windows, a backup and its restore), the command sheet with every
+common command written out, the install guide and the feature matrix.
+Start with [examples/README.md](examples/README.md). The example code is
+MIT.
+
 ## Licences
 
 vmx is Copyright (c) 2026 Zettarack. Each image also carries software made

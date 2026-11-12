@@ -1,0 +1,31 @@
+#cloud-config
+# The base of 04-golden-web.sh, a whole cloud-config given to the base
+# machine with vmx clone --user-data: nginx, and a service that writes the
+# machine's own name into its page at every boot, so each clone of the
+# golden says which one it is. Then the machine powers itself off, ready to
+# be cut into a microVM golden. Copy it and put your own application here.
+package_update: true
+packages:
+  - nginx
+write_files:
+  - path: /etc/systemd/system/whoami-page.service
+    content: |
+      [Unit]
+      Description=Write this machine's name into its web page
+      After=network-online.target
+      Wants=network-online.target
+      Before=nginx.service
+
+      [Service]
+      Type=oneshot
+      # %% and $$ are systemd's way of writing a plain % and $.
+      ExecStart=/bin/sh -c 'printf "<h1>%%s</h1><p>up since %%s</p>\n" "$$(hostname)" "$$(uptime -s)" > /var/www/html/index.html'
+
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, whoami-page.service, nginx.service]
+power_state:
+  mode: poweroff
+  condition: true

@@ -1,0 +1,4 @@
+# The tile's image: one static binary and nothing else (scene/README.md).
+FROM scratch
+COPY scene-agent /scene-agent
+ENTRYPOINT ["/scene-agent"]

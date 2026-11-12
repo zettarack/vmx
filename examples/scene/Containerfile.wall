@@ -1,0 +1,4 @@
+# The wall's image: one static binary and nothing else (scene/README.md).
+FROM scratch
+COPY scene-wall /scene-wall
+ENTRYPOINT ["/scene-wall"]
