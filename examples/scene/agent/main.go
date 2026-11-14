@@ -5,11 +5,15 @@
 // told its place by TILE (0 and up) and where the wall is by WALL
 // (http://HOST:PORT), at most FPS frames a second (8 unless set: forty
 // tiles uncapped sent a hundred frames a second each on one host).
+// Every frame carries a boot id made when the program starts, so the wall
+// can tell a new microVM in a tile's place from the one before it.
 // Part of the vmx examples (MIT, see examples/LICENSE).
 package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -86,7 +90,7 @@ func render(tile int, f frame) *image.RGBA {
 	return img
 }
 
-func send(c *http.Client, wall string, tile int, host string, ms int64, img *image.RGBA) error {
+func send(c *http.Client, wall string, tile int, host, boot string, ms int64, img *image.RGBA) error {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return err
@@ -97,6 +101,7 @@ func send(c *http.Client, wall string, tile int, host string, ms int64, img *ima
 	}
 	req.Header.Set("Content-Type", "image/png")
 	req.Header.Set("X-Host", host)
+	req.Header.Set("X-Boot", boot)
 	req.Header.Set("X-Render-Ms", strconv.FormatInt(ms, 10))
 	resp, err := c.Do(req)
 	if err != nil {
@@ -126,7 +131,14 @@ func main() {
 	if err != nil {
 		host = "tile-" + strconv.Itoa(tile)
 	}
-	log.Printf("tile %d (%s): drawing for %s", tile, host, wall)
+	// This start's own id: random, so two microVMs of one name are two.
+	// With no randomness to read, the time it started, which differs too.
+	id := make([]byte, 8)
+	boot := strconv.FormatInt(time.Now().UnixNano(), 36)
+	if _, err := rand.Read(id); err == nil {
+		boot = hex.EncodeToString(id)
+	}
+	log.Printf("tile %d (%s, boot %s): drawing for %s", tile, host, boot, wall)
 	c := &http.Client{Timeout: 5 * time.Second}
 	frames, spent, since := 0, time.Duration(0), time.Now()
 	for {
@@ -142,7 +154,7 @@ func main() {
 		t0 := time.Now()
 		img := render(tile, f)
 		took := time.Since(t0)
-		if err := send(c, wall, tile, host, took.Milliseconds(), img); err != nil {
+		if err := send(c, wall, tile, host, boot, took.Milliseconds(), img); err != nil {
 			log.Printf("tile %d: sending the frame: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
 			continue
