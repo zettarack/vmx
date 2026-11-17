@@ -6,40 +6,80 @@ runs as containers on a vmx host:
 - `wall/` is the wall: it hands every tile the frame's time, keeps each
   tile's newest picture, and serves one page that shows them all, with
   how many tiles are live, how many frames a second they draw together,
-  and how long the whole wall took to come up after "reset the stopwatch".
+  and how long the whole wall took to come up, at its start or after
+  "Reset the wall".
   The page's "info" button opens what is going on: how the work is shared
-  out, how a tile is repaired, how the whole is put together, why it is
-  built this way, and where the same shape fits.
+  out, how a tile is repaired, what its disk can do, how the whole is put
+  together, why it is built this way, and where the same shape fits.
 - `agent/` is a tile: told its place by `TILE` and the wall by `WALL`, it
   draws its part of a Mandelbrot zoom in a cycling palette, at most `FPS`
   frames a second (8), and sends each frame to the wall. A frame deeper in
-  the zoom costs more: the wall shows real work.
+  the zoom costs more: the wall shows real work. It counts the frames it
+  has drawn on its own disk (`/var/lib/scene/frames`, written and flushed
+  every second), and the page shows the count in the tile's corner. A tile
+  whose microVM is named `tile-N` draws place N, whatever `TILE` says, so a
+  clone named for a new place draws that place.
 
-## A click replaces a tile's microVM
+## Choose tiles, then a button
 
-Click a tile on the page and its microVM is destroyed and a new one
-booted in its place; the tile says how long it was away. The page says
-nothing of this until it is clicked, or its info is opened: it is there
-to be found.
+Click a tile on the page to choose it and again to let it go, or drag
+across tiles to choose every one you pass; **All** and **None** choose
+every tile or none, and Escape lets them all go. The buttons under the
+wall do their verb to every tile chosen, at once:
 
-The page cannot do that by itself, and that is the point: the wall is a
-program in a container, and nothing in a container commands the host. A
-click only records a request on the wall (`POST /replace/N`). The keeper
-is a loop on the host, run as root, which `05-demoscene-wall.sh` starts
-by itself as the service `demoscene-keeper` once the wall is up: it asks
-the wall what was clicked (`GET /asked`), says it has taken each (`POST
-/taken/N`), removes the tile's container and runs it again with the `vmx`
-command, and says how long each took (`journalctl -fu demoscene-keeper`).
-It also runs again any tile that is gone or stopped, however it went
-(`vmx container remove tile-07` is put right in a moment). It touches
-only the tiles the script made. `systemctl stop demoscene-keeper` stops
-it, and a tile pulled out then stays out; `--keep` starts it again,
+| Button | What becomes of each tile chosen |
+|---|---|
+| **Snapshot** | its disk as it is now, in a moment (`vmx container snapshot`) |
+| **Restore** | its disk put back to its newest snapshot: the microVM stopped, its disk returned and booted again, in under a second; the count in its corner goes back to what it was (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so |
+| **Rebuild** | its microVM destroyed and a new one booted from the image; the tile says how long it was away. An empty place gets a tile again |
+| **Clone** N | as many new microVMs from its disk as it is as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the count it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
+| **Remove** | the tile taken away; its place stays empty. A tile a clone stands on is not removed until the clone is |
+| **Reset the wall** | every tile and clone taken away and the picture's own run again from the image; the clock says how long the whole wall took, from the press |
+
+Each tile says on the page what became of it, and a press made while
+the tile is busy waits its turn. The keeper leaves the host 2 GiB of
+memory: a clone or a new tile past that is refused, on the tile.
+
+The page cannot do any of that by itself, and that is the point: the wall
+is a program in a container, and nothing in a container commands the
+host. A button only leaves a request on the wall: `POST /do/VERB` with
+the chosen tiles' numbers as a JSON list (VERB is `snapshot`, `rollback`,
+`rebuild`, `clone` or `remove`), or `POST /reset`. The keeper is a loop on
+the host, run as root, which `05-demoscene-wall.sh` starts by itself as
+the service `demoscene-keeper` once the wall is up. It asks the wall what
+waits (`GET /asked`: each tile's next verb, and whether a reset is
+asked), says it has taken each (`POST /acting/N`, `POST /reset/down`),
+does it with the `vmx` command, and says what became of it (`POST
+/did/N`, with a few words for the tile, and `X-Failed: 1` when it was not
+done; `POST /reset/up` once every tile is down for a reset). It does
+every verb on many tiles at once, a dozen presses at a time, and a
+reset's removals and runs sixteen at a time; `journalctl -fu
+demoscene-keeper` shows each. An older vmx made one of the runs and
+clones asked for at one moment and refused the others ("run it
+again"): the keeper asks again until each is made. It
+also runs again any tile that is gone or stopped, however it went (`vmx
+container remove tile-07` is put right in a moment), unless the page
+removed it. It touches only the tiles the script made and the clones it
+made of them. `systemctl stop demoscene-keeper` stops it, and nothing the
+page asks is done until it starts again; `--keep` starts it again,
 `--keep-here` runs it in a terminal instead, and `--remove` stops it
-before it takes the wall away.
+before it takes the wall away, the clones before the tiles they came
+from.
 
 The wall knows a new microVM by the boot id every tile sends with its
 frames (`X-Boot`), made when the tile's program starts. With no keeper
-watching, a click waits, and the page says so.
+watching, a request waits, and the page says so. `go test ./wall` tests
+the wall's side of all of this.
+
+The line under the clock is the keeper's too. Every two seconds it reads
+the tiles' microVMs on the host (`ps`: each one's resident memory) and
+their disks (`zfs list`: what each tile's volume refers to, which is what a
+full copy would take, and what it holds of its own, with each image the
+tiles are clones of counted once), and posts them to the wall (`POST
+/host`). The page shows them, and each tile's own share beside its name.
+Forty tiles on a vmx host, measured: 263 MiB as full copies, 12 MiB as
+ZFS keeps them (each tile's own 140 KiB or so, and the image they share,
+once), and 5.6 GiB of memory.
 
 Build both images on any machine with Go and Podman (or Docker):
 
@@ -47,19 +87,22 @@ Build both images on any machine with Go and Podman (or Docker):
 cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:2 .
-podman build -f Containerfile.wall -t scene-wall:3 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:2
-podman save --format oci-archive -o scene-wall.tar scene-wall:3
+podman build -f Containerfile.agent -t scene-agent:3 .
+podman build -f Containerfile.wall -t scene-wall:7 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:3
+podman save --format oci-archive -o scene-wall.tar scene-wall:7
 for f in scene-agent scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-wall.tar root@vmx-host:/home/
 ```
 
-Then on the vmx host, one command: the images from the archives, the
-wall, its tiles, and the keeper.
+Then on the vmx host, as root, one command: the images from the archives,
+the wall, its tiles, and the keeper. A wall that is there is taken away
+first. The script prints the page's address: open it in a browser.
 
 ```sh
+cd /home/examples
 ./05-demoscene-wall.sh --from /home
+./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home
 ```
 
 `--from` checks each archive against the digest the script names for
@@ -67,11 +110,12 @@ it. Archives you built yourself have digests of their own: name them, as
 printed above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:2 \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:3 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:3 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:7 \
 ./05-demoscene-wall.sh
 ```
 
 Try either program on your own computer first: `go run ./wall` serves
 <http://localhost:8090>, and `TILE=0 WALL=http://localhost:8090 go run ./agent`
-draws its tile there.
+draws its tile there (its count is kept only where it may write
+`/var/lib/scene`, as in its microVM).

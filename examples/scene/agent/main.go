@@ -7,6 +7,14 @@
 // tiles uncapped sent a hundred frames a second each on one host).
 // Every frame carries a boot id made when the program starts, so the wall
 // can tell a new microVM in a tile's place from the one before it.
+//
+// It counts the frames it has drawn on its own disk (/var/lib/scene,
+// written and flushed every second) and sends the count with each frame,
+// so a snapshot of its disk holds the count it had then, and a rollback
+// to that snapshot is seen on the wall as the count going back. A host
+// named tile-N (the container's name, which vmx gives the microVM) draws
+// place N whatever TILE says: a clone of tile-07 named tile-40 draws a
+// place of its own, below the picture's own rows.
 // Part of the vmx examples (MIT, see examples/LICENSE).
 package main
 
@@ -24,9 +32,63 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// counted is where the count of frames drawn is kept, on the tile's own
+// disk.
+const counted = "/var/lib/scene/frames"
+
+// readCount is the count kept on the disk, 0 when there is none yet.
+func readCount() int64 {
+	b, err := os.ReadFile(counted)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// writeCount keeps n on the disk, flushed, so a snapshot taken a moment
+// later holds it: written to a file beside it, synced, and renamed over.
+func writeCount(n int64) error {
+	if err := os.MkdirAll(filepath.Dir(counted), 0o755); err != nil {
+		return err
+	}
+	tmp := counted + ".new"
+	f, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(f, "%d\n", n); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, counted)
+}
+
+// place is the tile's place: the number in a host name tile-N, else TILE.
+func place(host string, tile int) int {
+	if n, ok := strings.CutPrefix(host, "tile-"); ok {
+		if i, err := strconv.Atoi(n); err == nil && i >= 0 && i < 256 {
+			return i
+		}
+	}
+	return tile
+}
 
 // frame is what the wall hands out: the time to draw, and the wall's shape.
 type frame struct {
@@ -90,7 +152,7 @@ func render(tile int, f frame) *image.RGBA {
 	return img
 }
 
-func send(c *http.Client, wall string, tile int, host, boot string, ms int64, img *image.RGBA) error {
+func send(c *http.Client, wall string, tile int, host, boot string, ms, count int64, img *image.RGBA) error {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return err
@@ -103,6 +165,7 @@ func send(c *http.Client, wall string, tile int, host, boot string, ms int64, im
 	req.Header.Set("X-Host", host)
 	req.Header.Set("X-Boot", boot)
 	req.Header.Set("X-Render-Ms", strconv.FormatInt(ms, 10))
+	req.Header.Set("X-Frames", strconv.FormatInt(count, 10))
 	resp, err := c.Do(req)
 	if err != nil {
 		return err
@@ -131,6 +194,9 @@ func main() {
 	if err != nil {
 		host = "tile-" + strconv.Itoa(tile)
 	}
+	tile = place(host, tile)
+	count := readCount()
+	kept := time.Now()
 	// This start's own id: random, so two microVMs of one name are two.
 	// With no randomness to read, the time it started, which differs too.
 	id := make([]byte, 8)
@@ -138,14 +204,11 @@ func main() {
 	if _, err := rand.Read(id); err == nil {
 		boot = hex.EncodeToString(id)
 	}
-	log.Printf("tile %d (%s, boot %s): drawing for %s", tile, host, boot, wall)
+	log.Printf("tile %d (%s, boot %s): drawing for %s, %d frames drawn on this disk before", tile, host, boot, wall, count)
 	c := &http.Client{Timeout: 5 * time.Second}
 	frames, spent, since := 0, time.Duration(0), time.Now()
 	for {
 		f, err := ask(c, wall)
-		if err == nil && tile >= f.Cols*f.Rows {
-			err = fmt.Errorf("the wall has %d tiles, and this is tile %d", f.Cols*f.Rows, tile)
-		}
 		if err != nil {
 			log.Printf("tile %d: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
@@ -154,12 +217,18 @@ func main() {
 		t0 := time.Now()
 		img := render(tile, f)
 		took := time.Since(t0)
-		if err := send(c, wall, tile, host, boot, took.Milliseconds(), img); err != nil {
+		if err := send(c, wall, tile, host, boot, took.Milliseconds(), count+1, img); err != nil {
 			log.Printf("tile %d: sending the frame: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
 			continue
 		}
-		frames, spent = frames+1, spent+took
+		frames, spent, count = frames+1, spent+took, count+1
+		if time.Since(kept) >= time.Second {
+			if err := writeCount(count); err != nil {
+				log.Printf("tile %d: keeping the count on the disk: %v", tile, err)
+			}
+			kept = time.Now()
+		}
 		if rest := time.Second/time.Duration(fps) - time.Since(t0); rest > 0 {
 			time.Sleep(rest)
 		}

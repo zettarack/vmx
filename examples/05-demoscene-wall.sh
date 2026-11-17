@@ -3,40 +3,71 @@
 # (scene/wall) is a container that hands out the frame's time and shows
 # every tile in a browser; each tile (scene/agent) is a container of its own,
 # a Firecracker microVM drawing its part of a Mandelbrot zoom and sending it
-# back several times a second. Pull a few out and the wall shows the holes;
-# run them again and they come back. With the keeper running, a click on a
-# tile of the page destroys its microVM and boots a new one in its place,
-# and a tile that goes any other way is run again.
+# back several times a second, and counting the frames it has drawn on its
+# own disk, shown in its corner of the page.
+#
+# On the page a click chooses a tile and another lets it go, a drag chooses
+# every tile it passes, and All and None choose every tile or none. The
+# buttons under the wall do their verb to every tile chosen, at once, by
+# the keeper with the vmx command:
+#   Snapshot        its disk as it is now (vmx container snapshot)
+#   Restore         its disk back to its newest snapshot, the microVM
+#                   stopped and booted again with it: the count in its
+#                   corner goes back (vmx container rollback --restart)
+#   Rebuild         its microVM destroyed and a new one booted from the
+#                   image; an empty place gets a tile again
+#   Clone N         N new microVMs from its disk as it is (vmx container
+#                   clone), the number in the box beside it (1 to 1024),
+#                   named for the next places after the picture's own: the
+#                   wall grows. The wall's places, the host's memory and
+#                   the addresses its network gives out end it, whichever
+#                   comes first, and the tile says how many were made
+#   Remove          the tile taken away; its place stays empty
+#   Reset the wall  every tile and clone taken away and the picture's own
+#                   run again from the image, timed from the press
+# Each tile says on the page what became of it, and a tile that goes any
+# other way is run again. A line under the clock says what the host holds
+# of the wall, as the keeper reads it every two seconds: the microVMs
+# running, the memory they take, and their disks as full copies against
+# what ZFS keeps; each tile shows the disk it holds of its own.
 #
 #   ./05-demoscene-wall.sh              the wall and COLS x ROWS tiles (8 x 5 = 40), then its keeper
 #   ./05-demoscene-wall.sh --from DIR   the same, with the images from the archives in DIR
 #   ./05-demoscene-wall.sh --keep       start the keeper again, for the wall that is there
 #   ./05-demoscene-wall.sh --keep-here  the keeper in this terminal instead, until Ctrl+C
-#   ./05-demoscene-wall.sh --remove     stop the keeper; remove the wall and every tile this script made
+#   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone and the wall this script made
 #
 # The keeper is this script, on the host, as root: the page is a program
-# in a container and commands nothing. It asks the wall which tiles were
-# clicked, removes each one's container and runs it again with the vmx
-# command, and says how long each took. It touches only the tiles this
-# script made. It runs as a service of its own, demoscene-keeper, so no
-# terminal has to stay open for it: journalctl -fu demoscene-keeper shows
-# what it does, and systemctl stop demoscene-keeper stops it (the wall
-# stays, and a tile pulled out then stays out).
+# in a container and commands nothing. It asks the wall what the page asked
+# for, does each with the vmx command, and says what became of each on the
+# wall and in its log: every verb on many tiles at once, a dozen presses at
+# a time, and the wall made again sixteen tiles at a time. It touches only
+# the tiles this script made and the clones it made of them, and leaves the
+# host 2 GiB of memory: a clone or a new tile past that is refused, and the
+# tile says so. An older vmx made one of the runs and clones asked for at
+# one moment and refused the others ("run it again"); each is asked again
+# until it is made.
+# It runs as a service of its own, demoscene-keeper, so no terminal has to
+# stay open for it: journalctl -fu demoscene-keeper shows what it does, and
+# systemctl stop demoscene-keeper stops it (the wall stays, and nothing the
+# page asks is done until it is started again).
 # The images come from a registry (AGENT_IMAGE, WALL_IMAGE), or from
 # archives built with scene/README.md's steps: --from DIR takes
 # scene-agent.tar and scene-wall.tar from DIR and checks each against its
-# image's digest below; AGENT_ARCHIVE and AGENT_DIGEST, WALL_ARCHIVE and
-# WALL_DIGEST name other archives. COLS (8), ROWS (5) and PORT (8090, this
-# host's port for the page) change the wall.
+# image's digest below (scene-agent:3 and scene-wall:7); AGENT_ARCHIVE and
+# AGENT_DIGEST, WALL_ARCHIVE and WALL_DIGEST name other archives. COLS (8),
+# ROWS (5) and PORT (8090, this host's port for the page) change the wall.
+# It prints the page's address: open it in a browser.
 # Examples:
+#   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar and /home/scene-wall.tar
+#   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   ./05-demoscene-wall.sh                     the wall and 40 tiles, images from the registry
-#   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar and /home/scene-wall.tar
-#   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh      8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:3 WALL_IMAGE=ghcr.io/you/scene-wall:3 ./05-demoscene-wall.sh
+#   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:3 WALL_IMAGE=ghcr.io/you/scene-wall:7 ./05-demoscene-wall.sh
 #   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:3 \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:3 ./05-demoscene-wall.sh
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:7 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
-#   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall and every tile removed
+#   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles and clones removed
 # Run it on the vmx host, as root.
 set -euo pipefail
 
@@ -48,13 +79,21 @@ port=${PORT:-8090}
 made=$here/.made/05-demoscene-wall.made
 # What the wall is, for --keep and --remove: its images, its address, its tiles.
 kept=$here/.made/05-demoscene-wall.kept
+# The keeper's own: the lock the list is written under, and a file for each
+# tile it has a job in hand for (and .reset while it makes the wall again).
+book=$here/.made/05-demoscene-wall.lock
+busy=$here/.made/05-demoscene-wall.busy
+# The wall's places, its own and its clones' (scene/wall's maxTiles).
+most=1024
+# The tiles a launch could not start, while it waits for the rest.
+failed=$here/.made/05-demoscene-wall.failed
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
-# The images' digests, the tiles' scene-agent:2 and the wall's scene-wall:3,
+# The images' digests, the tiles' scene-agent:3 and the wall's scene-wall:7,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
-agent_digest=sha256:a48d3773520d5f0855fa1ab88126140669890f4dfd5862d2e292e534c0207743
-wall_digest=sha256:b1344efcaaf498c0763a9db117e81b2d33caf534c36d33844601e2423af2264b
+agent_digest=sha256:d79f9e20582b3e3f163b313b026b451cb28c76d96df4fceeb6c0b0066190b431
+wall_digest=sha256:02c171ca6beff78d3e84aeaf44fb3cfa05774562ca0a70cf0bd1bda8caa55410
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 # --from DIR: the images from the archives in DIR, under their own names.
@@ -63,39 +102,84 @@ if [ "${1:-}" = --from ]; then
 	from=${2%/}
 	shift 2
 	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar and scene-wall.tar"
-	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:2}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:3}
+	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:3}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:7}
 fi
-agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:2}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:3}
+agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:3}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:7}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
+command -v flock >/dev/null || die "this needs flock (util-linux)"
 vmx container list --json >/dev/null 2>&1 || die "this vmx has no containers: upgrade it to a release that has 'vmx container'"
 has() { vmx container list --json | jq -e --arg n "$1" 'any(.[]; .name == $n)' >/dev/null; }
 address() { vmx container list --json | jq -r --arg n "$1" '.[] | select(.name == $n) | .address // empty'; }
+# quiet ARGS...: vmx ARGS, what it says of each step kept back unless it
+# fails; then all of it is shown. A new container an older vmx refused
+# because another asked for at the same moment took the uid it planned
+# ("run it again") is asked again; a newer vmx takes another uid itself.
+quiet() {
+	local out
+	for _ in $(seq 1 64); do
+		if out=$(vmx "$@" 2>&1 >/dev/null); then return 0; fi
+		case $out in *"run it again"*) ;; *) break ;; esac
+	done
+	printf '%s\n' "$out" >&2
+	return 1
+}
 # fact KEY: what the wall's record says of it; nothing when it does not.
 fact() { [ -f "$kept" ] && awk -v k="$1" '$1 == k { print $2 }' "$kept"; }
 
 if [ "${1:-}" = --remove ]; then
 	[ $# -eq 1 ] || die "usage: ${0##*/} --remove"
 	[ -f "$made" ] || die "nothing to remove: $made is not there"
-	# The images the wall was made from, as its record names them.
-	agent=$(fact agent || true)
-	wall=$(fact wall || true)
-	mapfile -t names <"$made"
-	# The records go first: a keeper still running (its service, or
-	# --keep-here in a terminal) stops at its next pass and runs nothing again.
-	rm -f "$made" "$kept"
+	# The keeper first, and what it has in hand with it.
 	if systemctl is-active --quiet "$keeper_unit"; then
 		systemctl stop "$keeper_unit" && echo "stopped the keeper ($keeper_unit)"
 	fi
-	# Twice: a keeper in a terminal may be in its last pass while the first
-	# goes by, and run one again.
-	for _ in 1 2; do
-		for n in "${names[@]}"; do
-			if has "$n"; then vmx container remove "$n" >/dev/null && echo "removed $n"; fi
-		done
+	# The images the wall was made from, as its record names them.
+	agent=$(fact agent || true)
+	wall=$(fact wall || true)
+	# The records next, under the list's lock: a keeper in a terminal
+	# (--keep-here) writes nothing more to them and stops at its next pass,
+	# once what it has in hand is done.
+	exec 8>"$book"
+	flock 8
+	mapfile -t names <"$made"
+	rm -f "$made" "$kept"
+	flock -u 8
+	for _ in $(seq 1 150); do
+		pgrep -f -- '05-demoscene-wall\.sh --keep-here$' >/dev/null || break
+		sleep 0.2
 	done
+	# Sixteen at a time, newest first: a clone made from a tile goes before
+	# the tile, which is not removed while a clone stands on its disk; one
+	# refused for that, its clone still going, goes in the next round.
+	present=$(vmx container list --json | jq -r '.[].name')
+	there=0
+	for n in "${names[@]}"; do if grep -qx -- "$n" <<<"$present"; then there=$((there + 1)); fi; done
+	left=$here/.made/05-demoscene-wall.left
+	for _ in 1 2 3 4 5 6; do
+		: >"$left"
+		running=0
+		for ((k = ${#names[@]} - 1; k >= 0; k--)); do
+			n=${names[k]}
+			grep -qx -- "$n" <<<"$present" || continue
+			if [ "$running" -ge 16 ]; then
+				wait -n || true
+				running=$((running - 1))
+			fi
+			(vmx container remove "$n" >/dev/null 2>&1 || echo "$n" >>"$left") </dev/null &
+			running=$((running + 1))
+		done
+		wait
+		mapfile -t names <"$left"
+		[ ${#names[@]} -gt 0 ] || break
+		present=$(vmx container list --json | jq -r '.[].name')
+	done
+	rm -f "$left"
+	echo "removed the wall and its tiles: $((there - ${#names[@]})) containers"
+	[ ${#names[@]} -eq 0 ] || echo "not removed: ${names[*]} (vmx container remove NAME says why)"
+	rm -rf "$busy" "$book" "$failed"
 	if [ -n "$agent" ] && [ -n "$wall" ]; then
 		echo "The images stay: vmx container image-remove $agent (and $wall) take them away."
 	else
@@ -106,7 +190,7 @@ fi
 
 # keeper_start: the keeper as a service of its own, so no terminal has to
 # stay open for it; what it does goes to the journal. One keeper at a time:
-# two would each replace the same click.
+# two would each do the same press.
 keeper_start() {
 	if systemctl is-active --quiet "$keeper_unit"; then
 		echo "The keeper runs already: journalctl -fu $keeper_unit shows what it does."
@@ -118,9 +202,9 @@ keeper_start() {
 	fi
 	systemd-run --quiet --collect --unit="$keeper_unit" --description="the demoscene wall's keeper, $here" \
 		"$here/${0##*/}" --keep-here
-	echo "The keeper runs as the service $keeper_unit: a tile clicked on the page is replaced, a tile gone is run again."
+	echo "The keeper runs as the service $keeper_unit: it does what the page's buttons ask, and runs again a tile that is gone."
 	echo "   what it does:  journalctl -fu $keeper_unit"
-	echo "   stop it:       systemctl stop $keeper_unit   (the wall stays; a tile pulled out then stays out)"
+	echo "   stop it:       systemctl stop $keeper_unit   (the wall stays; nothing the page asks is done until it starts again)"
 }
 
 if [ "${1:-}" = --keep ]; then
@@ -142,54 +226,431 @@ if [ "${1:-}" = --keep-here ]; then
 	n=$(fact tiles)
 	[[ $n =~ ^[0-9]+$ ]] && [ -n "$agent" ] && [ -n "$at" ] || die "$kept does not say the tiles' image, the wall's address and how many tiles"
 	url=http://$at:8090
-	run_tile() { vmx container run "$agent" "$1" --env "TILE=$((10#${1#tile-}))" --env "WALL=$url" >/dev/null 2>&1; }
+	# No job is in hand as the keeper starts.
+	rm -rf "$busy"
+	mkdir -p "$busy"
+
+	tile_name() { printf 'tile-%02d' "$1"; }
+	# listed NAME: this script keeps it.
+	listed() { grep -qx -- "$1" "$made" 2>/dev/null; }
+	# list_add NAME, list_drop NAME: the list written under its lock, and
+	# only while the wall's record is there (--remove takes it first).
+	list_add() { (flock 8 && if [ -f "$made" ]; then echo "$1" >>"$made"; fi) 8>"$book"; }
+	list_drop() { (flock 8 && if [ -f "$made" ]; then sed -i "/^$1\$/d" "$made"; fi) 8>"$book"; }
+	# room: the host keeps 2 GiB of memory; no new microVM is run past it.
+	room() { awk '$1 == "MemAvailable:" { ok = $2 >= 2 * 1024 * 1024 } END { exit !ok }' /proc/meminfo; }
+	# try ARGS...: vmx ARGS, the last line of what it said in $why when it
+	# fails. A new one an older vmx refused because another asked for at
+	# the same moment took the uid it planned is asked again, as quiet's.
+	why=
+	try() {
+		local out
+		for _ in $(seq 1 64); do
+			if out=$(vmx "$@" 2>&1 >/dev/null); then return 0; fi
+			case $out in *"run it again"*) ;; *) break ;; esac
+		done
+		why=$(tail -n 1 <<<"$out")
+		why=${why#vmx: }
+		[ -n "$why" ] || why="vmx $1 $2 failed and said nothing"
+		return 1
+	}
+	run_tile() {
+		try container run "$agent" "$1" --env "TILE=$((10#${1#tile-}))" --env "WALL=$url" || { echo "   $1: $why" >&2; return 1; }
+	}
+	# claim_n K: up to K places after the picture's own that nothing has,
+	# taken under the list's lock (on the list, and marked in hand), so
+	# that clones made at once have a place each; prints their names, fewer
+	# when the wall has fewer left. It fails 2 when vmx's list could not be
+	# read, and 1 when the wall was taken away.
+	claim_n() {
+		(
+			flock 8
+			[ -f "$made" ] || exit 1
+			present=$(vmx container list --json | jq -r '.[].name') || exit 2
+			declare -A taken=()
+			while read -r x; do [ -z "$x" ] || taken[$x]=1; done < <(cat "$made"; ls -A "$busy"; printf '%s\n' "$present")
+			got=0 k=$n
+			while [ "$got" -lt "$1" ] && [ "$k" -lt "$most" ]; do
+				new=$(tile_name "$k")
+				if [ -z "${taken[$new]:-}" ]; then
+					: >"$busy/$new"
+					echo "$new" >>"$made"
+					echo "$new"
+					got=$((got + 1))
+				fi
+				k=$((k + 1))
+			done
+		) 8>"$book"
+	}
 	# since NANOSECONDS: how long ago that was, in seconds and tenths.
 	since() {
 		local ms=$((($(date +%s%N) - $1) / 1000000))
 		printf '%d.%d' $((ms / 1000)) $((ms % 1000 / 100))
 	}
-	echo "Keeping the wall whole: a tile clicked on the page is destroyed and a new one run in its"
-	echo "place, and a tile that is gone or stopped is run again. Ctrl+C ends the keeping; the wall stays."
+	# clock_of LABEL: a snapshot's label, made in UTC, as this host's time of day.
+	clock_of() {
+		if [[ $1 =~ ^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$ ]]; then
+			date -d "${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}T${BASH_REMATCH[4]}:${BASH_REMATCH[5]}:${BASH_REMATCH[6]}Z" +%H:%M:%S
+		else
+			echo "@$1"
+		fi
+	}
+	# say I WORDS FAILED: what became of place I's verb, to the wall; FAILED
+	# is 1 when it was not done.
+	say() { curl -s -o /dev/null --max-time 2 -X POST -H "X-Failed: $3" --data-binary "$2" "$url/did/$1" || true; }
+	# clone_into SOURCE NEW STOP: NEW made a clone of SOURCE in its place
+	# on the wall, and its address waited for. One the host's network has
+	# no address left for stops in half a minute (vmx-init asks for one
+	# that long) and is taken away again: it could never draw. One still
+	# without an address after eight seconds marks itself slow
+	# (STOP.slow-NEW), and no more clones start until it has one or gives
+	# up: past the network's last address every clone would wait its half
+	# minute. Each clone made is a line of STOP.ok; the first reason the
+	# clones stop is STOP's.
+	clone_into() {
+		local src=$1 new=$2 stop=$3 i line state addr t
+		i=$((10#${new#tile-}))
+		if ! try container clone "$src" "$new"; then
+			list_drop "$new"
+			[ -s "$stop" ] || echo "$why" >"$stop"
+			rm -f "$busy/$new"
+			return 0
+		fi
+		say "$i" "a clone of $src" 0
+		addr=
+		for t in $(seq 1 45); do
+			line=$(vmx container list --json | jq -r --arg n "$new" '.[] | select(.name == $n) | "\(.state) \(.address // "")"') || line=
+			state=${line%% *} addr=${line#* }
+			[ "$addr" != "$line" ] || addr=
+			[ -z "$addr" ] || break
+			[ "$state" = running ] || break
+			[ "$t" -ne 8 ] || : >"$stop.slow-$new"
+			sleep 1
+		done
+		rm -f "$stop.slow-$new"
+		if [ -z "$addr" ]; then
+			try container remove "$new" || echo "   $new: not taken away: $why" >&2
+			list_drop "$new"
+			say "$i" "no address left on this host's network: taken away" 1
+			[ -s "$stop" ] || echo "the host's network has no address left" >"$stop"
+			rm -f "$busy/$new"
+			return 0
+		fi
+		echo "$new" >>"$stop.ok"
+		rm -f "$busy/$new"
+	}
+	# act_on NAME I VERB: one of the page's verbs on a tile, done with vmx;
+	# prints what became of it in a few words for the tile (nothing when
+	# the tile shows it itself), and fails when it was not done.
+	act_on() {
+		local name=$1 label s out places=() new want stop rc running
+		if [ "$3" != rebuild ] && ! listed "$name"; then
+			if has "$name"; then echo "not a tile this script made: left as it is"; else echo "an empty place: Rebuild puts a tile here"; fi
+			return 1
+		fi
+		case $3 in
+		snapshot)
+			label=$(date -u +%Y%m%dT%H%M%SZ)
+			try container snapshot "$name" "$label" || { echo "no snapshot: $why"; return 1; }
+			echo "snapshot at $(date +%H:%M:%S)"
+			;;
+		rollback)
+			# The newest snapshot a person took, not one a clone was made from.
+			label=$(vmx container snapshots "$name" --json 2>/dev/null | jq -r '[.[].name | select(startswith("clone-") | not)] | last // empty') || label=
+			[ -n "$label" ] || { echo "no snapshot to restore yet"; return 1; }
+			s=$(date +%s%N)
+			if ! try container rollback "$name" "$label" --restart; then
+				case $why in
+				*"was cloned from"*) echo "not restored: a clone stands on a newer snapshot; remove it first" ;;
+				*) echo "not restored: $why" ;;
+				esac
+				return 1
+			fi
+			echo "back to $(clock_of "$label") in $(since "$s") s"
+			;;
+		rebuild)
+			s=$(date +%s%N)
+			if listed "$name"; then
+				if has "$name" && ! try container remove "$name"; then
+					echo "not rebuilt: $why"
+					return 1
+				fi
+				echo "   $name: destroyed in $(since "$s") s" >&2
+			elif has "$name"; then
+				echo "not a tile this script made: left as it is"
+				return 1
+			else
+				room || { echo "not put back: the host keeps its last 2 GiB of memory"; return 1; }
+				list_add "$name"
+			fi
+			s=$(date +%s%N)
+			if ! run_tile "$name"; then
+				echo "no new one started: the keeper tries again"
+				return 1
+			fi
+			echo "   $name: a new one started in $(since "$s") s" >&2
+			;;
+		clone)
+			has "$name" || { echo "nothing to clone: it is gone"; return 1; }
+			want=${4:-3}
+			[[ $want =~ ^[0-9]+$ ]] && [ "$want" -ge 1 ] || { echo "not cloned: $want is not a count of clones"; return 1; }
+			s=$(date +%s%N) why=
+			stop=$busy/.clone-$name
+			: >"$stop"
+			: >"$stop.ok"
+			# The places first, all under one look at the list; then sixteen
+			# clones at a time into them. A place not reached once the clones
+			# stop (the host's memory, its network, a refusal) is let go.
+			rc=0
+			out=$(claim_n "$want") || rc=$?
+			case $rc in
+			0) ;;
+			2) echo "not cloned: vmx did not list its containers"; rm -f "$stop" "$stop.ok"; return 1 ;;
+			*) echo "not cloned: the wall was taken away"; rm -f "$stop" "$stop.ok"; return 1 ;;
+			esac
+			mapfile -t places <<<"$out"
+			[ -n "$out" ] || places=()
+			[ ${#places[@]} -eq "$want" ] || echo "the wall has no place left" >"$stop.short"
+			running=0
+			for new in "${places[@]}"; do
+				if [ "$running" -ge 16 ]; then
+					wait -n || true
+					running=$((running - 1))
+				fi
+				# One slow to get its address holds the rest back.
+				while compgen -G "$stop.slow-*" >/dev/null; do sleep 0.5; done
+				if [ -s "$stop" ] || ! room; then
+					[ -s "$stop" ] || echo "the host keeps its last 2 GiB of memory" >"$stop"
+					list_drop "$new"
+					rm -f "$busy/$new"
+					continue
+				fi
+				clone_into "$name" "$new" "$stop" </dev/null &
+				running=$((running + 1))
+			done
+			wait
+			mapfile -t places <"$stop.ok"
+			why=$(<"$stop")
+			[ -n "$why" ] || why=$(cat "$stop.short" 2>/dev/null || true)
+			rm -f "$stop" "$stop.ok" "$stop.short" "$stop".slow-*
+			[ ${#places[@]} -gt 0 ] || { echo "not cloned: $why"; return 1; }
+			mapfile -t places < <(printf '%s\n' "${places[@]}" | sort -V)
+			if [ ${#places[@]} -le 5 ]; then
+				out="cloned as ${places[*]#tile-}"
+			else
+				out="cloned ${#places[@]}"
+			fi
+			[ ${#places[@]} -eq "$want" ] || out+=" of $want"
+			echo "$out in $(since "$s") s${why:+; no more: $why}"
+			;;
+		remove)
+			# Off the list first, so its place stays empty.
+			list_drop "$name"
+			if has "$name" && ! try container remove "$name"; then
+				list_add "$name"
+				case $why in
+				*clone*) echo "not removed: a clone stands on its disk; remove the clone first" ;;
+				*) echo "not removed: $why" ;;
+				esac
+				return 1
+			fi
+			echo "removed: its place stays empty"
+			;;
+		*)
+			echo "no such verb: $3"
+			return 1
+			;;
+		esac
+	}
+	# host_says: what the host holds of the wall, said to it (POST /host):
+	# how many of its tiles' microVMs run and the memory they take (each
+	# one's resident set, from ps), and their disks two ways, from ZFS: as
+	# full copies would take them (what each refers to), and as ZFS keeps
+	# them (each one's own, and each image they come from, once); each
+	# tile's own by its place. A tile's disk is the volume vms/NAME/root;
+	# an image's is the dataset its golden is a snapshot of.
+	host_says() {
+		{
+			grep -x 'tile-[0-9]*' "$made" 2>/dev/null || true
+			echo "--ps"
+			ps -C firecracker -o rss=,args= 2>/dev/null || true
+			echo "--zfs"
+			zfs list -Hp -o name,used,referenced,origin -t volume 2>/dev/null || true
+		} | awk '
+			$0 == "--ps" { part = "ps"; next }
+			$0 == "--zfs" { part = "zfs"; FS = "\t"; next }
+			part == "" { tile[$0] = 1; next }
+			part == "ps" {
+				for (i = 2; i < NF; i++) if ($i == "--id" && ($(i + 1) in tile)) { mem += $1 * 1024; vms++ }
+				next
+			}
+			{
+				used[$1] = $2
+				n = split($1, p, "/")
+				if (n >= 3 && p[n] == "root" && p[n - 2] == "vms" && (p[n - 1] in tile)) {
+					own[p[n - 1]] = $2; copies += $3; disk += $2
+					if ($4 ~ /\/images\//) { o = $4; sub(/@.*/, "", o); img[o] = 1 }
+				}
+			}
+			END {
+				for (d in img) disk += used[d]
+				printf "{\"tiles\":%.0f,\"memory\":%.0f,\"copies\":%.0f,\"disk\":%.0f,\"own\":{", vms, mem, copies, disk
+				sep = ""
+				for (t in own) { k = substr(t, 6) + 0; printf "%s\"%d\":%.0f", sep, k, own[t]; sep = "," }
+				print "}}"
+			}' | curl -s -o /dev/null --max-time 2 -X POST --data-binary @- "$url/host" || true
+	}
+	# job I NAME VERB [N]: the verb done in the background (a clone N
+	# times), the tile marked busy while it runs, and what became of it
+	# said to the wall and the log.
+	job() {
+		: >"$busy/$2"
+		(
+			if said=$(act_on "$2" "$1" "$3" "${4:-}"); then f=0; else f=1; fi
+			say "$1" "$said" "$f"
+			echo "   $2: $3${said:+: $said}"
+			rm -f "$busy/$2"
+		) </dev/null &
+	}
+	# again NAME HOW: a tile that is gone run again, or one stopped started
+	# (HOW: run or start), in the background; one that does not is tried
+	# again five seconds later.
+	again() {
+		: >"$busy/$1"
+		(
+			if [ "$2" = start ] && try container start "$1"; then
+				echo "   $1 was stopped: started"
+			elif [ "$2" = run ] && room && run_tile "$1"; then
+				echo "   $1 was gone: a new one is running"
+			else
+				echo "   $1 did not $2${why:+: $why}: tried again in five seconds"
+				sleep 5
+			fi
+			rm -f "$busy/$1"
+		) </dev/null &
+	}
+	# reset_wall: the wall made again, as the page asked: every tile and
+	# clone this script keeps taken away, and the picture's own run again.
+	reset_wall() {
+		local s names present left name running k
+		curl -sf -o /dev/null --max-time 2 -X POST "$url/reset/down" || { rm -f "$busy/.reset"; return 0; }
+		s=$(date +%s%N)
+		echo "   reset: the wall is taken down"
+		# What is in hand finishes first, a minute at most.
+		for _ in $(seq 1 600); do
+			[ -z "$(find "$busy" -mindepth 1 -maxdepth 1 ! -name '.*' -print -quit)" ] && break
+			sleep 0.1
+		done
+		mapfile -t names < <(grep -x 'tile-[0-9]*' "$made" || true)
+		# Every one at once, sixteen at a time; one a clone stands on is
+		# refused until the clone is gone, and goes in the next round.
+		left=$busy/.left
+		for _ in 1 2 3 4 5 6; do
+			[ ${#names[@]} -gt 0 ] || break
+			present=$(vmx container list --json | jq -r '.[].name') || present=
+			: >"$left"
+			running=0
+			for name in "${names[@]}"; do
+				if [ "$running" -ge 16 ]; then
+					wait -n || true
+					running=$((running - 1))
+				fi
+				(if ! grep -qx -- "$name" <<<"$present" || try container remove "$name"; then list_drop "$name"; else echo "$name" >>"$left"; fi) </dev/null &
+				running=$((running + 1))
+			done
+			wait
+			mapfile -t names <"$left"
+		done
+		rm -f "$left"
+		[ ${#names[@]} -eq 0 ] || echo "   reset: ${names[*]} not removed: left as they are"
+		curl -sf -o /dev/null --max-time 2 -X POST "$url/reset/up" || echo "   reset: the wall did not take the end of the teardown"
+		echo "   reset: the wall is down in $(since "$s") s; its $n tiles run again"
+		# Sixteen at a time, as they were taken away; one that does not start
+		# is run again by the keeper's next pass.
+		present=$(vmx container list --json | jq -r '.[].name') || present=
+		running=0
+		for ((k = 0; k < n; k++)); do
+			name=$(tile_name "$k")
+			if listed "$name" && grep -qx -- "$name" <<<"$present"; then continue; fi
+			if [ "$running" -ge 16 ]; then
+				wait -n || true
+				running=$((running - 1))
+			fi
+			: >"$busy/$name"
+			listed "$name" || list_add "$name"
+			(
+				if ! { room && run_tile "$name"; }; then echo "   reset: $name did not start: the keeper runs it again"; fi
+				rm -f "$busy/$name"
+			) </dev/null &
+			running=$((running + 1))
+		done
+		wait
+		echo "   reset: the wall's $n tiles run again, $(since "$s") s after it was taken"
+		rm -f "$busy/.reset"
+	}
+	next_host=0
+	echo "Keeping the wall: what the page's buttons ask for is done here with vmx, and a tile that is gone"
+	echo "or stopped is run again. Ctrl+C ends the keeping; the wall stays."
 	trap 'echo; echo "The keeper has stopped. The wall is as it was left."; exit 0' INT TERM
 	while :; do
-		# The wall's record gone (--remove): there is nothing left to keep.
-		[ -f "$made" ] || { echo "The wall was removed (${0##*/} --remove): the keeper stops."; exit 0; }
+		# The wall's record gone (--remove): what is in hand ends, and the
+		# keeper with it.
+		if [ ! -f "$made" ]; then
+			wait
+			echo "The wall was removed (${0##*/} --remove): the keeper stops."
+			exit 0
+		fi
+		# What the host holds, said to the wall every two seconds, in the
+		# background.
+		if [ ! -e "$busy/.host" ] && [ "$(date +%s)" -ge "$next_host" ]; then
+			: >"$busy/.host"
+			(host_says; rm -f "$busy/.host") </dev/null &
+			next_host=$(($(date +%s) + 2))
+		fi
 		# What the page asked for. A wall that does not answer is asked again.
-		asked=$(curl -s --max-time 2 "$url/asked" | jq -r '.tiles[]?' 2>/dev/null) || asked=
-		for i in $asked; do
-			# Only a tile this script made, by its number: nothing else is
-			# removed, whatever the page was sent.
-			[[ $i =~ ^[0-9]+$ ]] && [ "$i" -lt "$n" ] || continue
-			name=$(printf 'tile-%02d' "$i")
-			grep -qx "$name" "$made" || continue
-			curl -s -o /dev/null --max-time 2 -X POST "$url/taken/$i" || true
-			began=$(date +%s%N)
-			if has "$name" && ! vmx container remove "$name" >/dev/null 2>&1; then
-				echo "   $name: not removed, and left as it is"
-				continue
+		doc=$(curl -s --max-time 2 "$url/asked") || doc=
+		if [ "$(jq -r '.reset // false' <<<"$doc" 2>/dev/null)" = true ] && [ ! -e "$busy/.reset" ]; then
+			: >"$busy/.reset"
+			reset_wall </dev/null &
+		fi
+		# While the wall is made again, nothing else is done.
+		if [ ! -e "$busy/.reset" ]; then
+			acts=$(jq -r '.acts[]? | "\(.tile) \(.do) \(.n // 0)"' <<<"$doc" 2>/dev/null) || acts=
+			while read -r i act cnt; do
+				# A place of the wall, by its number.
+				[[ $i =~ ^[0-9]+$ ]] && [ "$i" -lt "$most" ] || continue
+				name=$(tile_name "$i")
+				# One job a tile, a dozen at once: what is left is asked
+				# again at the next pass.
+				[ ! -e "$busy/$name" ] || continue
+				[ "$(jobs -rp | wc -l)" -lt 12 ] || break
+				curl -s -o /dev/null --max-time 2 -X POST "$url/acting/$i" || continue
+				job "$i" "$name" "$act" "$cnt"
+			done <<<"$acts"
+			# One that is gone or stopped, however it went, and not in hand:
+			# the list read first, then what is in hand, then vmx's list. A job
+			# that ends while vmx's list is read leaves a tile as the list
+			# caught it, a clone's new place not yet made or a tile stopped for
+			# its restore, and in hand as the pass began it is passed over; the
+			# next pass sees it as it is. (Read in the other order, a restore's
+			# tile was started over its own restart and a clone's place run
+			# over its clone: "already exists".) A list that was not read is
+			# not taken for a host with no tiles.
+			# A list taken away since the top of the pass is the wall removed:
+			# the next pass stops the keeper.
+			mapfile -t names <"$made" || { sleep 0.3; continue; }
+			held=$(ls -A "$busy")
+			if now=$(vmx container list --json 2>/dev/null | jq -r '.[] | "\(.name) \(.state)"'); then
+				for name in "${names[@]}"; do
+					if [[ $name != tile-* ]] || [ -e "$busy/$name" ] || grep -qx -- "$name" <<<"$held"; then continue; fi
+					state=$(awk -v n="$name" '$1 == n { print $2 }' <<<"$now")
+					case $state in
+					running) ;;
+					"") again "$name" run ;;
+					*) again "$name" start ;;
+					esac
+				done
 			fi
-			gone=$(since "$began")
-			again=$(date +%s%N)
-			if run_tile "$name"; then
-				# Started, not yet drawing: the page says how long the
-				# tile was away, from the click to the new one's first frame.
-				echo "   $name: destroyed in $gone s, a new one started $(since "$again") s later"
-			else
-				echo "   $name: destroyed, and a new one did not start: the next pass tries again"
-			fi
-		done
-		# One that is gone or stopped, however it went. A list that was not
-		# read is not taken for a host with no tiles.
-		if listed=$(vmx container list --json 2>/dev/null | jq -r '.[] | "\(.name) \(.state)"'); then
-			while read -r name; do
-				[[ $name == tile-* ]] || continue
-				state=$(awk -v n="$name" '$1 == n { print $2 }' <<<"$listed")
-				case $state in
-				running) ;;
-				"") run_tile "$name" && echo "   $name was gone: a new one is running" ;;
-				*) vmx container start "$name" >/dev/null 2>&1 && echo "   $name was $state: started" ;;
-				esac
-			done <"$made"
 		fi
 		sleep 0.3
 	done
@@ -215,35 +676,61 @@ get "$agent" "${AGENT_ARCHIVE:-}" "${AGENT_DIGEST:-}"
 echo "== the wall, on this host's port $port"
 echo scene-wall >>"$made"
 # Everything after -- is the program's arguments, as after the image in docker run.
-vmx container run "$wall" scene-wall --port "$port:8090" -- -cols "$cols" -rows "$rows"
+quiet container run "$wall" scene-wall --port "$port:8090" -- -cols "$cols" -rows "$rows" || die "the wall did not start (above, what vmx said); ${0##*/} --remove takes away what was made"
 wall_at=$(address scene-wall)
 [ -n "$wall_at" ] || die "the wall has no address"
+echo "   the wall runs at $wall_at; this host's port $port leads to it"
 printf 'agent %s\nwall %s\nat %s\ntiles %s\n' "$agent" "$wall" "$wall_at" "$((cols * rows))" >"$kept"
 for _ in $(seq 1 30); do curl -s --max-time 2 "http://$wall_at:8090/frame" >/dev/null && break; sleep 1; done
 curl -s --max-time 2 "http://$wall_at:8090/frame" >/dev/null || die "the wall does not answer at http://$wall_at:8090: vmx container logs scene-wall"
 
 host=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')
-echo "   open http://${host:-THIS-HOST}:$port/ in a browser now, and press 'reset the stopwatch'"
-echo "== $((cols * rows)) tiles"
-began=$(date +%s)
+echo "   open http://${host:-THIS-HOST}:$port/ in a browser now: its clock times the wall coming up"
+echo "== $((cols * rows)) tiles, sixteen at a time"
+present=$(vmx container list --json | jq -r '.[].name')
 for i in $(seq 0 $((cols * rows - 1))); do
 	n=$(printf 'tile-%02d' "$i")
-	has "$n" && die "a container named $n is there already"
+	! grep -qx -- "$n" <<<"$present" || die "a container named $n is there already"
+done
+began=$(date +%s%N)
+: >"$failed"
+running=0
+for i in $(seq 0 $((cols * rows - 1))); do
+	n=$(printf 'tile-%02d' "$i")
 	echo "$n" >>"$made"
-	vmx container run "$agent" "$n" --env "TILE=$i" --env "WALL=http://$wall_at:8090" >/dev/null
-	echo "   $n running, $(( $(date +%s) - began )) s"
+	if [ "$running" -ge 16 ]; then
+		wait -n || true
+		running=$((running - 1))
+	fi
+	(
+		if quiet container run "$agent" "$n" --env "TILE=$i" --env "WALL=http://$wall_at:8090"; then
+			ms=$((($(date +%s%N) - began) / 1000000))
+			printf '   %s running, %d.%d s\n' "$n" $((ms / 1000)) $((ms % 1000 / 100))
+		else
+			echo "$n" >>"$failed"
+		fi
+	) </dev/null &
+	running=$((running + 1))
 done
+wait
+if [ -s "$failed" ]; then
+	die "$(tr '\n' ' ' <"$failed")did not start (above, what vmx said); ${0##*/} --remove takes away what was made"
+fi
+rm -f "$failed"
 echo "== the tiles boot and start drawing"
-for _ in $(seq 1 60); do
+for _ in $(seq 1 300); do
 	[ "$(curl -s --max-time 2 "http://$wall_at:8090/state" | jq -r .live)" = $((cols * rows)) ] && break
-	sleep 1
+	sleep 0.2
 done
-curl -s "http://$wall_at:8090/state" | jq -r --argjson n $((cols * rows)) --argjson t "$(( $(date +%s) - began ))" \
+ms=$((($(date +%s%N) - began) / 1000000))
+curl -s "http://$wall_at:8090/state" | jq -r --argjson n $((cols * rows)) --arg t "$((ms / 1000)).$((ms % 1000 / 100))" \
 	'"the wall: \(.live) of \($n) tiles live \($t) s after the first was run, \(.fps) frames a second"'
 echo
 echo "== the keeper"
 keeper_start
 echo
-echo "Click a tile on the page: its microVM is destroyed and a new one boots in its place."
+echo "On the page: click or drag to choose tiles, then a button under the wall: Snapshot, Restore,"
+echo "Rebuild, Clone (as many as the box beside it says) or Remove. Reset the wall makes the whole wall again."
+echo "Each tile says what became of it, and the line under the clock what the host holds of the wall."
 echo "Pull some out:  for i in 05 06 13 14; do vmx container remove tile-\$i; done   (the keeper runs them again)"
 echo "Take it all away with: ${0##*/} --remove"
