@@ -77,6 +77,11 @@ type tile struct {
 	// own is the bytes of disk the tile holds of its own, as ZFS keeps it:
 	// what it wrote since it was cloned (POST /host).
 	own int64
+	// up is how long its microVM had run when the tile's program started,
+	// in ms, as the machine's own kernel counts it (X-Up-Ms, 0 when none
+	// was said), from its boot's first frame; upAt is when that came.
+	up   int64
+	upAt time.Time
 }
 
 // press is one press of a button for a tile: its verb, and for a clone
@@ -125,6 +130,12 @@ type wall struct {
 	// until it has.
 	host   *hostNow
 	hostAt time.Time
+	// viewed is when a page (or the launch script) last asked how the
+	// wall is; a tile that asks for a frame when nobody has for viewFor
+	// waits on wake for one to, holdFor at most (idle, below).
+	viewed           time.Time
+	wake             chan struct{}
+	viewFor, holdFor time.Duration
 }
 
 const (
@@ -151,13 +162,21 @@ const (
 	maxTiles = 1024
 	// hostFor is how long what the keeper said of the host is shown.
 	hostFor = 10 * time.Second
+	// A page asks how the wall is ten times a second: one that has not
+	// for idleAfter is not open. A tile's ask for a frame is held idleHold
+	// at most while nobody watches, within the agent's own five seconds.
+	idleAfter = 3 * time.Second
+	idleHold  = 4 * time.Second
 )
 
 // verbs are the buttons under the wall, as the keeper knows them.
-var verbs = map[string]bool{"snapshot": true, "rollback": true, "rebuild": true, "clone": true, "remove": true}
+var verbs = map[string]bool{"snapshot": true, "rollback": true, "rebuild": true, "kill": true, "clone": true, "remove": true}
 
 func newWall(cols, rows, w, h int, now time.Time) *wall {
-	return &wall{cols: cols, rows: rows, w: w, h: h, tiles: make([]tile, cols*rows), epoch: now, start: now}
+	// Seen as watched from its start, so the launch's first look at it
+	// (a frame, within two seconds) is answered at once.
+	return &wall{cols: cols, rows: rows, w: w, h: h, tiles: make([]tile, cols*rows), epoch: now, start: now,
+		viewed: now, viewFor: idleAfter, holdFor: idleHold}
 }
 
 // clip cuts s to at most n bytes, at the start of a character.
@@ -193,7 +212,47 @@ func (s *wall) expire(now time.Time) {
 	}
 }
 
-func (s *wall) frame(w http.ResponseWriter, _ *http.Request) {
+// seen is a page (or the launch script) asking how the wall is: every
+// tile waiting for one is let go. s.mu is held.
+func (s *wall) seen(now time.Time) {
+	s.viewed = now
+	if s.wake != nil {
+		close(s.wake)
+		s.wake = nil
+	}
+}
+
+// frame is the frame's time and the picture's shape, for a tile to draw
+// its part of. While nobody watches, a tile's ask waits until a page asks
+// how the wall is, holdFor at most, and is then answered 204 (nothing to
+// draw: ask again): forty tiles drew eight frames a second each for as
+// long as they ran, page or no page, and kept the host's processors busy
+// and warm (a vmx host of 24 threads, 2026-11-17: the wall was taken down
+// for its heat). A
+// page opened lets every waiting tile go at once.
+func (s *wall) frame(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	var wake chan struct{}
+	if time.Since(s.viewed) > s.viewFor {
+		if s.wake == nil {
+			s.wake = make(chan struct{})
+		}
+		wake = s.wake
+	}
+	s.mu.Unlock()
+	if wake != nil {
+		t := time.NewTimer(s.holdFor)
+		defer t.Stop()
+		select {
+		case <-wake:
+		case <-t.C:
+			w.WriteHeader(http.StatusNoContent)
+			return
+		case <-r.Context().Done():
+			// The tile gave up waiting: nobody is told anything.
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
 		"t": time.Since(s.epoch).Seconds(), "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
@@ -211,6 +270,11 @@ func (s *wall) put(w http.ResponseWriter, r *http.Request) {
 	ms, _ := strconv.Atoi(r.Header.Get("X-Render-Ms"))              // a missing number is shown as none
 	frames, _ := strconv.ParseInt(r.Header.Get("X-Frames"), 10, 64) // a missing count is shown as none
 	host, boot := clip(r.Header.Get("X-Host"), 40), clip(r.Header.Get("X-Boot"), 40)
+	// Ten minutes at most: a number past that, or none, is shown as none.
+	up, err := strconv.ParseInt(r.Header.Get("X-Up-Ms"), 10, 64)
+	if err != nil || up < 0 || up > 600000 {
+		up = 0
+	}
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -239,6 +303,11 @@ func (s *wall) put(w http.ResponseWriter, r *http.Request) {
 		t.took, t.gen, t.newAt, t.asked = now.Sub(from), t.gen+1, now, time.Time{}
 		s.replaced++
 		log.Printf("tile %d is a new microVM, %.1f s after the old one (%s)", i, t.took.Seconds(), host)
+	}
+	// A boot's first frame says how long its machine took; the rest say
+	// the same, and are not taken for a new boot's.
+	if t.ver == 0 || boot != t.boot {
+		t.up, t.upAt = up, now
 	}
 	t.boot = boot
 	t.png, t.ver, t.at, t.host, t.ms, t.frames = body, t.ver+1, now, host, ms, frames
@@ -379,7 +448,10 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 	reset := s.phase == "asked"
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]any{"acts": acts, "reset": reset}); err != nil {
+	// Whether somebody watches: the keeper looks for tiles that went, and
+	// says what the host holds, less often while nobody does.
+	watched := time.Since(s.viewed) <= s.viewFor
+	if err := json.NewEncoder(w).Encode(map[string]any{"acts": acts, "reset": reset, "watched": watched}); err != nil {
 		log.Printf("asked: %v", err)
 	}
 }
@@ -530,10 +602,16 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 		More   int    `json:"more,omitempty"`
 		Said   string `json:"said,omitempty"`
 		Own    int64  `json:"own,omitempty"`
+		// Up: how long the tile's microVM took to start its program, as
+		// its kernel counts it, and UpAge how long ago that boot first
+		// drew (none when it did not say).
+		Up    int64 `json:"up_ms,omitempty"`
+		UpAge int64 `json:"up_age_ms,omitempty"`
 	}
 	now := time.Now()
 	s.mu.Lock()
 	s.expire(now)
+	s.seen(now)
 	out := make([]one, len(s.tiles))
 	live, up := 0, 0
 	fresh := s.host != nil && now.Sub(s.hostAt) <= hostFor
@@ -548,6 +626,9 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 		}
 		if fresh {
 			o.Own = t.own
+		}
+		if t.up > 0 {
+			o.Up, o.UpAge = t.up, max(now.Sub(t.upAt).Milliseconds(), 1)
 		}
 		if t.said != "" && now.Sub(t.saidAt) <= sayFor {
 			o.Said = t.said
@@ -618,6 +699,9 @@ func (s *wall) hostSays(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *wall) page(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	s.seen(time.Now())
+	s.mu.Unlock()
 	// NTILES is the count the info text gives, MAXTILES the most a clone
 	// asks for. The page's words keep clear of the six names in capitals,
 	// which the replacer takes as its own.
@@ -720,7 +804,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="host"></div>
 <div id="wall"></div>
 <div id="dock">
-<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="rollback">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
+<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="rollback">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
 <div id="hint"></div>
 </div>
 <div id="info" hidden>
@@ -734,6 +818,7 @@ button:disabled{opacity:.35;cursor:default}
 <li><b>Snapshot</b> takes the tile's disk as it is, in a moment.</li>
 <li><b>Restore</b> puts the disk back to its newest snapshot: the microVM is stopped, its disk returned and booted again, and the count in its corner goes back to what it was.</li>
 <li><b>Rebuild</b> destroys the microVM and boots a new one from the image in its place, and the tile says how long it was away. A place left empty gets a tile again.</li>
+<li><b>Kill</b> ends the microVM as a crash or a power cut would: its process killed outright, with no shutdown. Nothing asks for it back: the keeper finds the machine stopped, as it would one that died any other way, and starts it again with its disk as it was, and the tile says how long it was away.</li>
 <li><b>Clone</b> makes as many new microVMs from the tile's disk as it is as the number beside it says, for each tile chosen: each a ZFS clone, so it copies nothing and takes no space until it writes, and each draws a new place below the picture, counting on from the count it was cloned with. The wall takes MAXTILES places; the host's memory and the addresses its network gives out end most walls sooner, and the tile says which.</li>
 <li><b>Remove</b> takes the tile away, and its place stays empty.</li>
 <li><b>Reset the wall</b> takes every tile and every clone away and runs the picture's own tiles again from the image, and the clock above says how long the whole wall took, from the press.</li>
@@ -741,7 +826,7 @@ button:disabled{opacity:.35;cursor:default}
 <h2>The line under the clock</h2>
 <p>What the host holds of the wall, as the keeper reads it from the host every few seconds: how many of its microVMs run, the memory they take (each microVM's resident memory on the host), and their disks counted two ways: as full copies would take them, and as ZFS keeps them, each tile's own changes and the image they all share counted once. Each tile shows the disk it holds of its own beside its name.</p>
 <h2>Who does it</h2>
-<p>The page cannot do any of that by itself, and that is the point: it is a program in a container, and nothing in a container commands the host. A button only leaves a request on the wall. The keeper, a small loop on the host (<code>05-demoscene-wall.sh</code>, running as the service <code>demoscene-keeper</code>), asks the wall what was asked, does it with the <code>vmx</code> command and says what became of it, which the tile shows. It also runs again any tile that is gone or stopped, however it went. Every tile sends an id made when its program starts, so the wall can tell a new machine from the old one. With no keeper watching, a request waits, and the page says so.</p>
+<p>The page cannot do any of that by itself, and that is the point: it is a program in a container, and nothing in a container commands the host. A button only leaves a request on the wall. The keeper, a small loop on the host (<code>05-demoscene-wall.sh</code>, running as the service <code>demoscene-keeper</code>), asks the wall what was asked, does it with the <code>vmx</code> command and says what became of it, which the tile shows. It also runs again any tile that is gone or stopped, however it went. Every tile sends an id made when its program starts, so the wall can tell a new machine from the old one. A tile that has just booted says, for ten seconds, how long its microVM took from its kernel starting to its program running, as the machine itself counts it. With no keeper watching, a request waits, and the page says so.</p>
 <h2>How it is put together</h2>
 <p>This runs on a vmx host. Each image is pulled once, or imported from an archive, by its digest, and unpacked onto a ZFS volume kept as its golden. Every container is a ZFS clone of that golden, so a new one copies nothing and takes no space until it writes. It boots in a Firecracker microVM, confined by Firecracker's jailer, running its own copy of the kernel the host runs, with a small init that starts the image's program. The tiles talk to the wall on the host's private network; the wall's port is forwarded from the host, which is how this page reaches you.</p>
 <h2>Why build it this way</h2>
@@ -765,7 +850,7 @@ button:disabled{opacity:.35;cursor:default}
 <script>
 const n=COLS*ROWS,$=id=>document.getElementById(id),wall=$('wall'),tiles=[],sel=new Set();
 const verbs=[...document.querySelectorAll('#tools button[data-do]')];
-const doing={snapshot:'taking a snapshot',rollback:'restoring',rebuild:'a new one is coming',clone:'cloning',remove:'removing'};
+const doing={snapshot:'taking a snapshot',rollback:'restoring',rebuild:'a new one is coming',kill:'killing it',clone:'cloning',remove:'removing'};
 const count=$('count'),most=MAXTILES;
 // size is bytes in the units ZFS and the host count in.
 const size=b=>{const u=['B','KiB','MiB','GiB','TiB'];let k=0;while(b>=1024&&k<u.length-1){b/=1024;k++;}return(k&&b<10?b.toFixed(1):Math.round(b))+' '+u[k];};
@@ -796,6 +881,7 @@ if(t.act)return[name+'  '+(doing[t.act]||t.act)+(t.act_n?' '+t.act_n:'')+(t.more
 if(t.asked)return[name+'  '+doing.rebuild,'busy'];
 if(t.new_ms>0&&t.new_ms<4000)return[name+'  new in '+(t.took_ms/1000).toFixed(1)+' s','fresh'];
 if(t.said)return[name+'  '+t.said,'said'];
+if(t.up_ms>0&&t.up_age_ms<10000)return[name+'  up in '+(t.up_ms/1000).toFixed(2)+' s',''];
 return[name+(t.own?'  '+size(t.own):'')+(t.ms?'  '+t.ms+' ms':''),''];}
 async function tick(){try{const s=await(await fetch('/state')).json();
 if(s.era!==era){era=s.era;tiles.forEach((o,i)=>{o.v=-1;o.im.removeAttribute('src');choose(i,false);});}

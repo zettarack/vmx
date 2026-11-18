@@ -18,7 +18,12 @@ runs as containers on a vmx host:
   has drawn on its own disk (`/var/lib/scene/frames`, written and flushed
   every second), and the page shows the count in the tile's corner. A tile
   whose microVM is named `tile-N` draws place N, whatever `TILE` says, so a
-  clone named for a new place draws that place.
+  clone named for a new place draws that place. It draws only while
+  somebody watches: with no page asking the wall how it is for three
+  seconds (a page asks ten times a second), the wall holds each tile's ask
+  for a frame up to four seconds and answers 204, nothing to draw, so the
+  tiles take next to no processor; the moment a page asks, every waiting
+  tile is let go and the picture moves again within a frame.
 
 ## Choose tiles, then a button
 
@@ -32,12 +37,22 @@ wall do their verb to every tile chosen, at once:
 | **Snapshot** | its disk as it is now, in a moment (`vmx container snapshot`) |
 | **Restore** | its disk put back to its newest snapshot: the microVM stopped, its disk returned and booted again, in under a second; the count in its corner goes back to what it was (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so |
 | **Rebuild** | its microVM destroyed and a new one booted from the image; the tile says how long it was away. An empty place gets a tile again |
+| **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk as it was; the tile says how long its place was without a picture |
 | **Clone** N | as many new microVMs from its disk as it is as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the count it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
 | **Remove** | the tile taken away; its place stays empty. A tile a clone stands on is not removed until the clone is |
 | **Reset the wall** | every tile and clone taken away and the picture's own run again from the image; the clock says how long the whole wall took, from the press |
 
 Each tile says on the page what became of it, and a press made while
-the tile is busy waits its turn. The keeper leaves the host 2 GiB of
+the tile is busy waits its turn. For ten seconds after it boots, a tile
+says how long its microVM took, from its kernel starting to its program
+running, as the machine itself counts it (`up in 0.62 s`).
+
+`05-demoscene-wall.sh --show` plays the wall's own show on the wall that
+is there, the same take every time, for a recording: Reset the wall,
+Snapshot every tile, Kill eight, Restore every tile, Clone one twelve
+times, Reset again. It presses the buttons as the page does, waits each
+step out until the keeper has done it, and pauses the same between them;
+open the page first. The keeper leaves the host 2 GiB of
 memory: a clone or a new tile past that is refused, on the tile.
 
 The page cannot do any of that by itself, and that is the point: the wall
@@ -87,10 +102,10 @@ Build both images on any machine with Go and Podman (or Docker):
 cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:3 .
-podman build -f Containerfile.wall -t scene-wall:7 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:3
-podman save --format oci-archive -o scene-wall.tar scene-wall:7
+podman build -f Containerfile.agent -t scene-agent:4 .
+podman build -f Containerfile.wall -t scene-wall:8 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:4
+podman save --format oci-archive -o scene-wall.tar scene-wall:8
 for f in scene-agent scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -110,8 +125,8 @@ it. Archives you built yourself have digests of their own: name them, as
 printed above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:3 \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:7 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:4 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:8 \
 ./05-demoscene-wall.sh
 ```
 

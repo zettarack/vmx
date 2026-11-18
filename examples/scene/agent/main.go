@@ -23,6 +23,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -99,6 +100,11 @@ type frame struct {
 	H    int     `json:"h"`
 }
 
+// errIdle is the wall saying nobody watches it: nothing to draw, ask again.
+// It holds the ask for a few seconds first, so asking again at once is
+// not a busy loop.
+var errIdle = errors.New("nobody watches the wall")
+
 func ask(c *http.Client, wall string) (frame, error) {
 	var f frame
 	resp, err := c.Get(wall + "/frame")
@@ -106,6 +112,9 @@ func ask(c *http.Client, wall string) (frame, error) {
 		return f, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return f, errIdle
+	}
 	if resp.StatusCode != http.StatusOK {
 		return f, fmt.Errorf("the wall answered %s", resp.Status)
 	}
@@ -152,7 +161,27 @@ func render(tile int, f frame) *image.RGBA {
 	return img
 }
 
-func send(c *http.Client, wall string, tile int, host, boot string, ms, count int64, img *image.RGBA) error {
+// upMs is how long this machine had run when the tile's program started,
+// as its own kernel counts it (/proc/uptime): from the microVM's kernel
+// starting to the program, its address included. 0 when it cannot be
+// read, and then nothing is said.
+func upMs() int64 {
+	b, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	f := strings.Fields(string(b))
+	if len(f) == 0 {
+		return 0
+	}
+	v, err := strconv.ParseFloat(f[0], 64)
+	if err != nil || v < 0 {
+		return 0
+	}
+	return int64(v * 1000)
+}
+
+func send(c *http.Client, wall string, tile int, host, boot string, up, ms, count int64, img *image.RGBA) error {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return err
@@ -165,6 +194,9 @@ func send(c *http.Client, wall string, tile int, host, boot string, ms, count in
 	req.Header.Set("X-Host", host)
 	req.Header.Set("X-Boot", boot)
 	req.Header.Set("X-Render-Ms", strconv.FormatInt(ms, 10))
+	if up > 0 {
+		req.Header.Set("X-Up-Ms", strconv.FormatInt(up, 10))
+	}
 	req.Header.Set("X-Frames", strconv.FormatInt(count, 10))
 	resp, err := c.Do(req)
 	if err != nil {
@@ -178,6 +210,9 @@ func send(c *http.Client, wall string, tile int, host, boot string, ms, count in
 }
 
 func main() {
+	// First, before anything of the program's own: how long the machine
+	// took to get here.
+	up := upMs()
 	log.SetFlags(0)
 	wall := os.Getenv("WALL")
 	tile, err := strconv.Atoi(os.Getenv("TILE"))
@@ -204,11 +239,25 @@ func main() {
 	if _, err := rand.Read(id); err == nil {
 		boot = hex.EncodeToString(id)
 	}
-	log.Printf("tile %d (%s, boot %s): drawing for %s, %d frames drawn on this disk before", tile, host, boot, wall, count)
+	log.Printf("tile %d (%s, boot %s, the machine up %d ms): drawing for %s, %d frames drawn on this disk before", tile, host, boot, up, wall, count)
 	c := &http.Client{Timeout: 5 * time.Second}
 	frames, spent, since := 0, time.Duration(0), time.Now()
+	idle := false
 	for {
 		f, err := ask(c, wall)
+		if errors.Is(err, errIdle) {
+			// Said once, when it starts: the wall holds each ask a few
+			// seconds while nobody watches, and the tile draws nothing.
+			if !idle {
+				log.Printf("tile %d: nobody watches the wall: drawing nothing until a page is open", tile)
+				idle = true
+			}
+			continue
+		}
+		if err == nil && idle {
+			log.Printf("tile %d: a page is open: drawing again", tile)
+			idle = false
+		}
 		if err != nil {
 			log.Printf("tile %d: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
@@ -217,7 +266,7 @@ func main() {
 		t0 := time.Now()
 		img := render(tile, f)
 		took := time.Since(t0)
-		if err := send(c, wall, tile, host, boot, took.Milliseconds(), count+1, img); err != nil {
+		if err := send(c, wall, tile, host, boot, up, took.Milliseconds(), count+1, img); err != nil {
 			log.Printf("tile %d: sending the frame: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
 			continue

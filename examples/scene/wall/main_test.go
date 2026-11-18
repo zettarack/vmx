@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -490,5 +491,210 @@ func TestAClonesPlaceIsTheWallsUpToItsLast(t *testing.T) {
 	}
 	if got := ask(t, s, "POST", "/did/"+itoa(maxTiles), "a clone of tile-01"); got != http.StatusNotFound || len(s.tiles) != maxTiles {
 		t.Errorf("past the last place: %d, %d places", got, len(s.tiles))
+	}
+}
+
+// serve runs one request to the wall's routes in the background; its
+// answer comes on the channel when it ends.
+func serve(s *wall, r *http.Request) chan *httptest.ResponseRecorder {
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, r)
+		done <- w
+	}()
+	return done
+}
+
+// A tile draws only while somebody watches: its ask for a frame is
+// answered at once from the wall's start and while a page asks how the
+// wall is; with nobody since, it waits, and a page asking (or loading)
+// lets it, and every other tile waiting, go at once with a frame; with
+// nobody at all it is answered 204 once the hold is over (nothing to
+// draw: ask again), not before; a tile that gives up waiting is told
+// nothing. Forty tiles drew for nobody and kept the host warm (a vmx
+// host of 24 threads, 2026-11-17).
+func TestATileDrawsOnlyWhileSomebodyWatches(t *testing.T) {
+	s := newWall(2, 1, 16, 16, time.Now())
+	s.viewFor, s.holdFor = 80*time.Millisecond, 400*time.Millisecond
+	get := func(path string) *http.Request { return httptest.NewRequest("GET", path, nil) }
+	start := time.Now()
+	if w := <-serve(s, get("/frame")); w.Code != http.StatusOK || time.Since(start) > 50*time.Millisecond {
+		t.Fatalf("from the wall's start: %d after %s", w.Code, time.Since(start))
+	}
+	time.Sleep(120 * time.Millisecond)
+	held := serve(s, get("/frame"))
+	select {
+	case w := <-held:
+		t.Fatalf("nobody watching: answered %d at once", w.Code)
+	case <-time.After(150 * time.Millisecond):
+	}
+	opened := time.Now()
+	if c := ask(t, s, "GET", "/state", ""); c != http.StatusOK {
+		t.Fatalf("state: %d", c)
+	}
+	select {
+	case w := <-held:
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"cols":2`) {
+			t.Fatalf("let go: %d %s", w.Code, w.Body.String())
+		}
+		if d := time.Since(opened); d > 100*time.Millisecond {
+			t.Errorf("let go %s after the page asked", d)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("a page asked, and the tile still waits")
+	}
+	if w := <-serve(s, get("/frame")); w.Code != http.StatusOK {
+		t.Fatalf("watched: %d", w.Code)
+	}
+	time.Sleep(120 * time.Millisecond)
+	start = time.Now()
+	if w := <-serve(s, get("/frame")); w.Code != http.StatusNoContent || time.Since(start) < 350*time.Millisecond || time.Since(start) > 900*time.Millisecond {
+		t.Errorf("nobody at all: %d after %s; want 204 once the hold is over", w.Code, time.Since(start))
+	}
+	time.Sleep(120 * time.Millisecond)
+	held = serve(s, get("/frame"))
+	time.Sleep(50 * time.Millisecond)
+	if c := ask(t, s, "GET", "/", ""); c != http.StatusOK {
+		t.Fatalf("the page: %d", c)
+	}
+	select {
+	case w := <-held:
+		if w.Code != http.StatusOK {
+			t.Errorf("let go by the page loading: %d", w.Code)
+		}
+	case <-time.After(time.Second):
+		t.Error("the page was loaded, and the tile still waits")
+	}
+	time.Sleep(120 * time.Millisecond)
+	a, b := serve(s, get("/frame")), serve(s, get("/frame"))
+	time.Sleep(50 * time.Millisecond)
+	ask(t, s, "GET", "/state", "")
+	for _, ch := range []chan *httptest.ResponseRecorder{a, b} {
+		select {
+		case w := <-ch:
+			if w.Code != http.StatusOK {
+				t.Errorf("one of two tiles: %d", w.Code)
+			}
+		case <-time.After(time.Second):
+			t.Error("one of two tiles still waits")
+		}
+	}
+	time.Sleep(120 * time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	gone := serve(s, get("/frame").WithContext(ctx))
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case w := <-gone:
+		if w.Body.Len() != 0 || w.Header().Get("Content-Type") != "" {
+			t.Errorf("a tile that gave up was told %q", w.Body.String())
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("a tile that gave up is still held")
+	}
+}
+
+// A tile says how long its microVM took to start its program, as its
+// boot's first frame says it (X-Up-Ms); the frames after it say the same
+// and are not taken for a new boot's; a new boot says its own; a number
+// that is none, below zero, past ten minutes or not a number is shown as
+// none; and the page is told how long ago that boot first drew.
+func TestATileSaysHowLongItsMachineTookToStart(t *testing.T) {
+	s := newWall(2, 1, 16, 16, time.Now())
+	post := func(boot, up string) {
+		t.Helper()
+		h := []string{"X-Boot", boot, "X-Host", "tile-00"}
+		if up != "-" {
+			h = append(h, "X-Up-Ms", up)
+		}
+		if c := ask(t, s, "POST", "/tile/0", "\x89PNG\r\n\x1a\nxx", h...); c != http.StatusNoContent {
+			t.Fatalf("a frame: %d", c)
+		}
+	}
+	upOf := func() (int64, int64) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/state", nil))
+		var d struct {
+			Tiles []struct {
+				Up    int64 `json:"up_ms"`
+				UpAge int64 `json:"up_age_ms"`
+			} `json:"tiles"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+			t.Fatal(err)
+		}
+		return d.Tiles[0].Up, d.Tiles[0].UpAge
+	}
+	post("a", "612")
+	if up, age := upOf(); up != 612 || age < 1 || age > 1000 {
+		t.Errorf("the first boot: up %d, %d ms ago; want 612, just now", up, age)
+	}
+	post("a", "999")
+	if up, _ := upOf(); up != 612 {
+		t.Errorf("the same boot again: up %d, want its first frame's 612", up)
+	}
+	post("b", "731")
+	if up, _ := upOf(); up != 731 {
+		t.Errorf("a new boot: up %d, want 731", up)
+	}
+	for _, bad := range []string{"-", "", "-5", "600001", "x", "1e3"} {
+		post("c"+bad, bad)
+		if up, age := upOf(); up != 0 || age != 0 {
+			t.Errorf("X-Up-Ms %q: up %d, age %d; want none", bad, up, age)
+		}
+	}
+	post("d", "600000")
+	if up, _ := upOf(); up != 600000 {
+		t.Errorf("ten minutes: up %d", up)
+	}
+}
+
+// Kill is a button's verb like the others: asked of the keeper for each
+// tile chosen, in its turn, and on the page; the page has its button.
+func TestKillIsAskedOfTheKeeperAsAnyVerbIs(t *testing.T) {
+	s := fourTiles()
+	if c := ask(t, s, "POST", "/do/kill", "[0,2]"); c != http.StatusNoContent {
+		t.Fatalf("kill: %d", c)
+	}
+	a := askedOf(t, s)
+	if len(a.Acts) != 2 || a.Acts[0].Tile != 0 || a.Acts[0].Do != "kill" || a.Acts[1].Tile != 2 || a.Acts[1].Do != "kill" {
+		t.Fatalf("kill for the tiles chosen: %+v", a.Acts)
+	}
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if !strings.Contains(w.Body.String(), `<button data-do="kill">Kill</button>`) || !strings.Contains(w.Body.String(), "kill:'killing it'") {
+		t.Fatal("the page has no Kill button, or no word for a tile being killed")
+	}
+}
+
+// The keeper is told whether somebody watches: from the wall's start, and
+// while a page asks how the wall is; not once nobody has for a while.
+func TestTheKeeperIsToldWhetherSomebodyWatches(t *testing.T) {
+	s := newWall(2, 1, 16, 16, time.Now())
+	s.viewFor = 60 * time.Millisecond
+	watched := func() bool {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/asked", nil))
+		var d struct {
+			Watched *bool `json:"watched"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil || d.Watched == nil {
+			t.Fatalf("asked: %v %s", err, w.Body.String())
+		}
+		return *d.Watched
+	}
+	if !watched() {
+		t.Error("from the wall's start: not watched")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if watched() {
+		t.Error("nobody for a while: watched")
+	}
+	ask(t, s, "GET", "/state", "")
+	if !watched() {
+		t.Error("a page asked: not watched")
 	}
 }

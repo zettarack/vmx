@@ -13,7 +13,10 @@
 # the frames a second the page shows are real work. Each tile counts the
 # frames it has drawn on its own disk (written and flushed every second),
 # and the count shows in its corner of the page: that count is how a disk
-# put back, or carried into a clone, is seen.
+# put back, or carried into a clone, is seen. For ten seconds after it
+# boots, a tile says how long its microVM took, from its kernel starting
+# to its program running, as the machine itself counts it. It draws only
+# while somebody watches (POWER, below).
 # The wall (scene/wall) is one more container: it hands out the frame's
 # time, keeps each tile's newest square, and serves the page that shows
 # them all.
@@ -51,6 +54,11 @@
 #                   on is newer than that: refused until the clone is gone
 #   Rebuild         its microVM destroyed and a new one booted from the
 #                   image, timed; an empty place gets a tile again
+#   Kill            its microVM ended as a crash would end it: the process
+#                   killed outright (SIGKILL), no shutdown. Nothing asks
+#                   for it back: the keeper finds it stopped and starts it
+#                   again with its disk as it was, and the tile says how
+#                   long it was away
 #   Clone N         N new microVMs from its disk as it is (vmx container
 #                   clone), N from the box beside the button (1 to 1024),
 #                   sixteen at a time, named for the next places after the
@@ -119,15 +127,22 @@
 # MiB as full copies and 12 MiB as ZFS keeps them; their memory, 5.6 GiB.
 #
 # POWER
-# Each tile draws for as long as it runs, whether or not a page is open:
-# forty keep the host's processors busy and warm. Take the wall away when
-# it is not being shown (--remove), and make it again for the next showing.
+# The tiles draw only while somebody watches: a page open (it asks the
+# wall how it is ten times a second), or this script while it waits for
+# them to start. With nobody for three seconds the wall holds each tile's
+# ask for a frame, and the tiles draw nothing and take next to no
+# processor; a page opened lets every tile go at once, and the picture
+# moves again within a frame. The microVMs keep running and their memory
+# stays taken: --remove takes the wall away.
 #
 # USAGE
 #   ./05-demoscene-wall.sh --from DIR   the wall and COLS x ROWS tiles (8 x 5 = 40), the images from the archives in DIR, then its keeper
 #   ./05-demoscene-wall.sh              the same, the images pulled from AGENT_IMAGE's and WALL_IMAGE's registry
 #   ./05-demoscene-wall.sh --keep       start the keeper again, for the wall that is there
 #   ./05-demoscene-wall.sh --keep-here  the keeper in this terminal instead, until Ctrl+C
+#   ./05-demoscene-wall.sh --show       the wall's own show, the same take every time, for a recording:
+#                                       Reset, Snapshot every tile, Kill eight, Restore every tile,
+#                                       Clone one twelve times, Reset; open the page first
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone and the wall this script made
 #
 # The images are not in a public registry yet (ghcr.io/zettarack, the
@@ -135,7 +150,7 @@
 # steps and give their archives with --from DIR, or push them to a registry
 # of your own and name them with AGENT_IMAGE and WALL_IMAGE. --from DIR takes
 # scene-agent.tar and scene-wall.tar from DIR and checks each against its
-# image's digest below (scene-agent:3 and scene-wall:7); AGENT_ARCHIVE and
+# image's digest below (scene-agent:4 and scene-wall:8); AGENT_ARCHIVE and
 # AGENT_DIGEST, WALL_ARCHIVE and WALL_DIGEST name other archives. COLS (8),
 # ROWS (5) and PORT (8090, this host's port for the page) change the wall.
 # It prints the page's address: open it in a browser.
@@ -143,9 +158,9 @@
 #   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar and /home/scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:3 WALL_IMAGE=ghcr.io/you/scene-wall:7 ./05-demoscene-wall.sh
-#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:3 \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:7 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:4 WALL_IMAGE=ghcr.io/you/scene-wall:8 ./05-demoscene-wall.sh
+#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:4 \
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:8 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles and clones removed
 # Run it on the vmx host, as root.
@@ -169,11 +184,11 @@ most=1024
 failed=$here/.made/05-demoscene-wall.failed
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
-# The images' digests, the tiles' scene-agent:3 and the wall's scene-wall:7,
+# The images' digests, the tiles' scene-agent:4 and the wall's scene-wall:8,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
-agent_digest=sha256:d79f9e20582b3e3f163b313b026b451cb28c76d96df4fceeb6c0b0066190b431
-wall_digest=sha256:02c171ca6beff78d3e84aeaf44fb3cfa05774562ca0a70cf0bd1bda8caa55410
+agent_digest=sha256:f2e70dd8f12b42cec95b017b31ebcc47995301e5c507ffc9c3d61006d46b32a7
+wall_digest=sha256:f06bf177e5984f26c049568ba9e49600adcacd7f855bab5a92e357f82bbb868b
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 # --from DIR: the images from the archives in DIR, under their own names.
@@ -182,11 +197,11 @@ if [ "${1:-}" = --from ]; then
 	from=${2%/}
 	shift 2
 	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar and scene-wall.tar"
-	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:3}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:7}
+	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:4}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:8}
 fi
-agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:3}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:7}
+agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:4}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:8}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -291,6 +306,59 @@ if [ "${1:-}" = --keep ]; then
 	[ $# -eq 1 ] || die "usage: ${0##*/} --keep"
 	[ -f "$made" ] && [ -f "$kept" ] || die "no wall to keep: ${0##*/} makes one first"
 	keeper_start
+	exit 0
+fi
+
+# --show: the wall's own show, for a recording: the same take every time,
+# on the wall that is there, pressed as the page presses its buttons (POST
+# /do/VERB with the tiles' numbers), each step waited out until the
+# keeper has done it, with the same pauses between. Open the page first:
+# what it shows is what is recorded.
+if [ "${1:-}" = --show ]; then
+	[ $# -eq 1 ] || die "usage: ${0##*/} --show"
+	[ -f "$made" ] && [ -f "$kept" ] || die "no wall to show: ${0##*/} makes one first"
+	at=$(fact at)
+	n=$(fact tiles)
+	[[ $n =~ ^[0-9]+$ ]] && [ -n "$at" ] || die "$kept does not say the wall's address and how many tiles"
+	url=http://$at:8090
+	systemctl is-active --quiet "$keeper_unit" || pgrep -f -- '05-demoscene-wall\.sh --keep-here$' >/dev/null \
+		|| die "no keeper runs, and nothing pressed would be done: ${0##*/} --keep first"
+	state() { curl -sf --max-time 2 "$url/state"; }
+	step() { printf '%s  %s\n' "$(date +%T)" "$*"; }
+	# press VERB [N] TILE...: a button, as the page presses it.
+	press() {
+		local what=$1 q=
+		shift
+		if [ "$what" = clone ]; then q="?n=$1"; shift; fi
+		curl -sf -o /dev/null --max-time 2 -X POST --data-binary "[$(IFS=,; echo "$*")]" "$url/do/$what$q" || die "the wall did not take $what"
+	}
+	# settle SECS: until no tile has a verb in hand or waiting, and every
+	# place with a tile draws, SECS at most.
+	settle() {
+		for _ in $(seq 1 $(($1 * 5))); do
+			state | jq -e '[.tiles[] | select(.act or .asked or (.v > 0 and .age_ms > 2000))] | length == 0' >/dev/null && return 0
+			sleep 0.2
+		done
+		step "  still busy after $1 s: on to the next step"
+	}
+	# reset: the wall made again, waited out until it is whole.
+	reset() {
+		curl -sf -o /dev/null --max-time 2 -X POST "$url/reset" || die "the wall did not take the reset"
+		for _ in $(seq 1 25); do [ "$(state | jq -r '.reset')" != "" ] && break; sleep 0.2; done
+		for _ in $(seq 1 600); do [ "$(state | jq -r '.reset')" = "" ] && break; sleep 0.2; done
+		step "  the wall is whole: $(state | jq -r '"\(.full_n) tiles up in \(.full_s * 10 | floor / 10) s"')"
+	}
+	mapfile -t every < <(seq 0 $((n - 1)))
+	some=()
+	for k in 2 9 13 20 27 30 34 38; do [ "$k" -lt "$n" ] && some+=("$k"); done
+	step "the show, on $url ($n tiles); Ctrl+C ends it, and the wall stays as it is"
+	step "Reset the wall";                reset; sleep 4
+	step "Snapshot every tile";           press snapshot "${every[@]}"; settle 60; sleep 4
+	step "Kill ${#some[@]} tiles outright";  press kill "${some[@]}"; settle 60; sleep 4
+	step "Restore every tile";            press rollback "${every[@]}"; settle 120; sleep 4
+	step "Clone tile 0, twelve times";    press clone 12 0; settle 180; sleep 6
+	step "Reset the wall";                reset
+	step "the show is over"
 	exit 0
 fi
 
@@ -423,7 +491,7 @@ if [ "${1:-}" = --keep-here ]; then
 	# prints what became of it in a few words for the tile (nothing when
 	# the tile shows it itself), and fails when it was not done.
 	act_on() {
-		local name=$1 label s out places=() new want stop rc running
+		local name=$1 label s out places=() new want stop rc running pid
 		if [ "$3" != rebuild ] && ! listed "$name"; then
 			if has "$name"; then echo "not a tile this script made: left as it is"; else echo "an empty place: Rebuild puts a tile here"; fi
 			return 1
@@ -469,6 +537,18 @@ if [ "${1:-}" = --keep-here ]; then
 				return 1
 			fi
 			echo "   $name: a new one started in $(since "$s") s" >&2
+			;;
+		kill)
+			# The machine ended as a crash or a power cut would end it: its
+			# firecracker process (the one whose --id is the tile's name)
+			# killed outright, with no shutdown. Nothing here starts it
+			# again: the keeper's own pass finds it stopped, as it would a
+			# machine that died any other way, and starts it with its disk
+			# as it was; the tile then says how long it was away.
+			pid=$(ps -C firecracker -o pid=,args= | awk -v n="$name" '{for (i = 2; i < NF; i++) if ($i == "--id" && $(i + 1) == n) {print $1; exit}}')
+			[ -n "$pid" ] || { echo "not killed: no machine of it runs"; return 1; }
+			kill -KILL "$pid" || { echo "not killed: the signal was refused"; return 1; }
+			echo "killed outright at $(date +%H:%M:%S): the keeper starts it again"
 			;;
 		clone)
 			has "$name" || { echo "nothing to clone: it is gone"; return 1; }
@@ -668,7 +748,7 @@ if [ "${1:-}" = --keep-here ]; then
 		echo "   reset: the wall's $n tiles run again, $(since "$s") s after it was taken"
 		rm -f "$busy/.reset"
 	}
-	next_host=0
+	next_host=0 next_heal=0 watched=1
 	echo "Keeping the wall: what the page's buttons ask for is done here with vmx, and a tile that is gone"
 	echo "or stopped is run again. Ctrl+C ends the keeping; the wall stays."
 	trap 'echo; echo "The keeper has stopped. The wall is as it was left."; exit 0' INT TERM
@@ -680,12 +760,12 @@ if [ "${1:-}" = --keep-here ]; then
 			echo "The wall was removed (${0##*/} --remove): the keeper stops."
 			exit 0
 		fi
-		# What the host holds, said to the wall every two seconds, in the
-		# background.
+		# What the host holds, said to the wall every two seconds while
+		# somebody watches (the page shows it), every ten while nobody does.
 		if [ ! -e "$busy/.host" ] && [ "$(date +%s)" -ge "$next_host" ]; then
 			: >"$busy/.host"
 			(host_says; rm -f "$busy/.host") </dev/null &
-			next_host=$(($(date +%s) + 2))
+			next_host=$(($(date +%s) + (watched ? 2 : 10)))
 		fi
 		# What the page asked for. A wall that does not answer is asked again.
 		doc=$(curl -s --max-time 2 "$url/asked") || doc=
@@ -693,6 +773,10 @@ if [ "${1:-}" = --keep-here ]; then
 			: >"$busy/.reset"
 			reset_wall </dev/null &
 		fi
+		# Whether somebody watches (a wall from before says nothing of it:
+		# taken as watched).
+		watched=$(jq -r 'if .watched == false then 0 else 1 end' <<<"$doc" 2>/dev/null) || watched=1
+		[ -n "$watched" ] || watched=1
 		# While the wall is made again, nothing else is done.
 		if [ ! -e "$busy/.reset" ]; then
 			acts=$(jq -r '.acts[]? | "\(.tile) \(.do) \(.n // 0)"' <<<"$doc" 2>/dev/null) || acts=
@@ -718,24 +802,33 @@ if [ "${1:-}" = --keep-here ]; then
 			# not taken for a host with no tiles.
 			# A list taken away since the top of the pass is the wall removed:
 			# the next pass stops the keeper.
-			mapfile -t names <"$made" || { sleep 0.3; continue; }
-			held=$(ls -A "$busy")
-			if now=$(vmx container list --json 2>/dev/null | jq -r '.[] | "\(.name) \(.state)"'); then
-				for name in "${names[@]}"; do
-					if [[ $name != tile-* ]] || [ -e "$busy/$name" ] || grep -qx -- "$name" <<<"$held"; then continue; fi
-					state=$(awk -v n="$name" '$1 == n { print $2 }' <<<"$now")
-					case $state in
-					running) ;;
-					"") again "$name" run ;;
-					*) again "$name" start ;;
-					esac
-				done
+			# Every second while somebody watches, every five while nobody does:
+			# each read of vmx's list has vmxd look at every microVM's unit, and
+			# three times a second it cost the host about a processor with the
+			# tiles idle (2026-11-18).
+			if [ "$(date +%s)" -ge "$next_heal" ]; then
+				next_heal=$(($(date +%s) + (watched ? 1 : 5)))
+				mapfile -t names <"$made" || { sleep 0.3; continue; }
+				held=$(ls -A "$busy")
+				if now=$(vmx container list --json 2>/dev/null | jq -r '.[] | "\(.name) \(.state)"'); then
+					for name in "${names[@]}"; do
+						if [[ $name != tile-* ]] || [ -e "$busy/$name" ] || grep -qx -- "$name" <<<"$held"; then continue; fi
+						state=$(awk -v n="$name" '$1 == n { print $2 }' <<<"$now")
+						case $state in
+						running) ;;
+						"") again "$name" run ;;
+						*) again "$name" start ;;
+						esac
+					done
+				fi
 			fi
 		fi
-		sleep 0.3
+		# A press comes from a page that is open: the keeper asks three
+		# times a second then, and once a second while nobody watches.
+		if [ "$watched" = 1 ]; then sleep 0.3; else sleep 1; fi
 	done
 fi
-[ $# -eq 0 ] || die "usage: ${0##*/} [--from DIR | --keep | --keep-here | --remove]"
+[ $# -eq 0 ] || die "usage: ${0##*/} [--from DIR | --keep | --keep-here | --show | --remove]"
 [[ $cols =~ ^[0-9]+$ && $rows =~ ^[0-9]+$ ]] && [ $((cols * rows)) -ge 1 ] && [ $((cols * rows)) -le 64 ] || die "COLS x ROWS is 1 to 64 tiles"
 [ -f "$made" ] && die "this script made a wall already: ${0##*/} --remove takes it away first"
 mkdir -p "$(dirname "$made")"
@@ -810,7 +903,7 @@ echo "== the keeper"
 keeper_start
 echo
 echo "On the page: click or drag to choose tiles, then a button under the wall: Snapshot, Restore,"
-echo "Rebuild, Clone (as many as the box beside it says) or Remove. Reset the wall makes the whole wall again."
+echo "Rebuild, Kill, Clone (as many as the box beside it says) or Remove. Reset the wall makes the whole wall again."
 echo "Each tile says what became of it, and the line under the clock what the host holds of the wall."
 echo "Pull some out:  for i in 05 06 13 14; do vmx container remove tile-\$i; done   (the keeper runs them again)"
 echo "Take it all away with: ${0##*/} --remove"
