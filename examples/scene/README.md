@@ -103,9 +103,9 @@ cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-wall ./wall
 podman build -f Containerfile.agent -t scene-agent:4 .
-podman build -f Containerfile.wall -t scene-wall:8 .
+podman build -f Containerfile.wall -t scene-wall:9 .
 podman save --format oci-archive -o scene-agent.tar scene-agent:4
-podman save --format oci-archive -o scene-wall.tar scene-wall:8
+podman save --format oci-archive -o scene-wall.tar scene-wall:9
 for f in scene-agent scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -126,7 +126,7 @@ printed above.
 
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:4 \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:8 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:9 \
 ./05-demoscene-wall.sh
 ```
 

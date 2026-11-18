@@ -698,3 +698,27 @@ func TestTheKeeperIsToldWhetherSomebodyWatches(t *testing.T) {
 		t.Error("a page asked: not watched")
 	}
 }
+
+// The page's info says what the wall does now: that the tiles draw only
+// while somebody watches, every button the tools bar has (Kill among
+// them), the tile's boot time, and the show.
+func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
+	w := httptest.NewRecorder()
+	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	for _, said := range []string{
+		"<h2>When nobody watches</h2>", "the picture moves within a frame",
+		"<li><b>Snapshot</b>", "<li><b>Restore</b>", "<li><b>Rebuild</b>", "<li><b>Kill</b>", "<li><b>Clone</b>", "<li><b>Remove</b>", "<li><b>Reset the wall</b>",
+		"how long its microVM took from its kernel starting to its program running", "<code>05-demoscene-wall.sh --show</code>",
+	} {
+		if !strings.Contains(page, said) {
+			t.Errorf("the info does not say %q", said)
+		}
+	}
+	// Every button of the tools bar is in the info's list.
+	for _, b := range []string{"snapshot", "rollback", "rebuild", "kill", "clone", "remove"} {
+		if !strings.Contains(page, `data-do="`+b+`"`) {
+			t.Errorf("the tools bar has no %s button", b)
+		}
+	}
+}
