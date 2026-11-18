@@ -65,8 +65,9 @@ type tile struct {
 	// again by a restore, not a new one.
 	asked, restartBy time.Time
 	// frames is the count of frames the tile has drawn, as its disk keeps
-	// it.
-	frames int64
+	// it, and vframes as its volume keeps it: -1 when it sent none (a tile
+	// with no volume, or an agent from before volumes).
+	frames, vframes int64
 	// queue is the buttons' verbs waiting for the keeper, the first the
 	// one it does next; acting whether it took that one, actAt when. said
 	// is what the keeper said became of the last, saidAt when.
@@ -95,13 +96,16 @@ type press struct {
 // of the wall's microVMs run, the memory they take (each one's resident
 // set), and their disks: as many bytes as full copies would take, and as
 // ZFS keeps them, each tile's own and the images they share counted once.
-// Own is each place's own bytes, by its number.
+// Volumes is what the volumes the tiles count on hold, as ZFS keeps them
+// (each one's own, the room ZFS sets aside for it with it), apart from
+// their disks. Own is each place's own bytes, by its number.
 type hostNow struct {
-	Tiles  int              `json:"tiles"`
-	Memory int64            `json:"memory"`
-	Copies int64            `json:"copies"`
-	Disk   int64            `json:"disk"`
-	Own    map[string]int64 `json:"own"`
+	Tiles   int              `json:"tiles"`
+	Memory  int64            `json:"memory"`
+	Copies  int64            `json:"copies"`
+	Disk    int64            `json:"disk"`
+	Volumes int64            `json:"volumes"`
+	Own     map[string]int64 `json:"own"`
 }
 
 type wall struct {
@@ -269,6 +273,12 @@ func (s *wall) put(w http.ResponseWriter, r *http.Request) {
 	}
 	ms, _ := strconv.Atoi(r.Header.Get("X-Render-Ms"))              // a missing number is shown as none
 	frames, _ := strconv.ParseInt(r.Header.Get("X-Frames"), 10, 64) // a missing count is shown as none
+	// The volume's count: none (-1) when the tile sent none, or sent what
+	// is not a count.
+	vframes, err := strconv.ParseInt(r.Header.Get("X-Volume-Frames"), 10, 64)
+	if err != nil || vframes < 0 {
+		vframes = -1
+	}
 	host, boot := clip(r.Header.Get("X-Host"), 40), clip(r.Header.Get("X-Boot"), 40)
 	// Ten minutes at most: a number past that, or none, is shown as none.
 	up, err := strconv.ParseInt(r.Header.Get("X-Up-Ms"), 10, 64)
@@ -310,7 +320,7 @@ func (s *wall) put(w http.ResponseWriter, r *http.Request) {
 		t.up, t.upAt = up, now
 	}
 	t.boot = boot
-	t.png, t.ver, t.at, t.host, t.ms, t.frames = body, t.ver+1, now, host, ms, frames
+	t.png, t.ver, t.at, t.host, t.ms, t.frames, t.vframes = body, t.ver+1, now, host, ms, frames, vframes
 	s.frames = append(s.frames, now)
 	for len(s.frames) > 0 && now.Sub(s.frames[0]) > liveFor {
 		s.frames = s.frames[1:]
@@ -591,12 +601,14 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 		Gen   int   `json:"gen"`
 		New   int64 `json:"new_ms"`
 		Took  int64 `json:"took_ms"`
-		// Frames: the count its disk keeps. Act: the verb the keeper does
+		// Frames: the count its disk keeps, and Vol its volume's (none for
+		// a tile that sent none). Act: the verb the keeper does
 		// next or is doing, a clone's count in ActN, and More how many wait
 		// behind it. Said: what the keeper said became of the last, for
 		// sayFor. Own: the disk it holds of its own, while what the keeper
 		// said of the host is shown.
 		Frames int64  `json:"frames"`
+		Vol    *int64 `json:"vol_frames,omitempty"`
 		Act    string `json:"act,omitempty"`
 		ActN   int    `json:"act_n,omitempty"`
 		More   int    `json:"more,omitempty"`
@@ -618,6 +630,10 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 	for i, t := range s.tiles {
 		o := one{V: t.ver, Host: t.host, Ms: t.ms, Age: now.Sub(t.at).Milliseconds(),
 			Asked: !t.asked.IsZero(), Gen: t.gen, Took: t.took.Milliseconds(), Frames: t.frames}
+		if t.ver > 0 && t.vframes >= 0 {
+			v := t.vframes
+			o.Vol = &v
+		}
 		if !t.newAt.IsZero() {
 			o.New = max(now.Sub(t.newAt).Milliseconds(), 1)
 		}
@@ -653,7 +669,7 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 		"era": s.era, "reset": s.phase, "reset_s": now.Sub(s.phaseAt).Seconds()}
 	if fresh {
 		doc["host"] = map[string]any{"tiles": s.host.Tiles, "memory": s.host.Memory, "copies": s.host.Copies,
-			"disk": s.host.Disk, "age_ms": now.Sub(s.hostAt).Milliseconds()}
+			"disk": s.host.Disk, "volumes": s.host.Volumes, "age_ms": now.Sub(s.hostAt).Milliseconds()}
 	}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -675,7 +691,7 @@ func (s *wall) hostSays(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the body is what the host holds, as JSON: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	if h.Tiles < 0 || h.Memory < 0 || h.Copies < 0 || h.Disk < 0 {
+	if h.Tiles < 0 || h.Memory < 0 || h.Copies < 0 || h.Disk < 0 || h.Volumes < 0 {
 		http.Error(w, "the host's numbers are 0 or more", http.StatusBadRequest)
 		return
 	}
@@ -761,7 +777,7 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 .t img{display:block;width:TWpx;height:THpx;pointer-events:none;-webkit-user-drag:none}
 .t img:not([src]){visibility:hidden}
 .t span{position:absolute;left:4px;bottom:4px;max-width:calc(100% - 16px);padding:1px 4px;border-radius:2px;background:#05040acc;font-size:10px;line-height:1.3;color:#fff;pointer-events:none}
-.t b{position:absolute;right:4px;top:4px;padding:0 4px;border-radius:2px;background:#05040acc;font-size:12px;color:#fff;pointer-events:none}
+.t b{position:absolute;right:4px;top:4px;padding:0 4px;border-radius:2px;background:#05040acc;font-size:12px;color:#fff;pointer-events:none;white-space:pre;text-align:right}
 .t b:empty{display:none}
 .t::after{content:'';position:absolute;inset:0;border:3px solid transparent;pointer-events:none}
 .t.sel::after{border-color:#ff3cac;box-shadow:inset 0 0 0 1px #000,inset 0 0 22px #ff3cacbb}
@@ -815,18 +831,18 @@ button:disabled{opacity:.35;cursor:default}
 <h2>When nobody watches</h2>
 <p>The tiles draw only while somebody watches. This page asks the wall how it is ten times a second; when nothing has asked for three seconds, the wall holds each tile's request for its next frame, and the tiles draw nothing and take next to no processor, though their microVMs keep running. Open the page again and every waiting tile is let go at once: the picture moves within a frame. The keeper looks for tiles that went every five seconds then, and every second while the page is open.</p>
 <h2>What the buttons do</h2>
-<p>Click a tile to choose it, or drag across tiles to choose every one you pass; click a chosen tile to let it go. <b>All</b> and <b>None</b> choose every tile or none, and Escape lets them all go. A button does its verb to every tile chosen, at once. Every tile counts the frames it has drawn on its own disk, in its corner.</p>
+<p>Click a tile to choose it, or drag across tiles to choose every one you pass; click a chosen tile to let it go. <b>All</b> and <b>None</b> choose every tile or none, and Escape lets them all go. A button does its verb to every tile chosen, at once. Every tile counts the frames it has drawn twice, in its corner: on its <b>disk</b>, which is the machine's and is made again from the image with it, and on its <b>volume</b>, a ZFS volume of its own that outlives the machine.</p>
 <ul>
-<li><b>Snapshot</b> takes the tile's disk as it is, in a moment.</li>
-<li><b>Restore</b> puts the disk back to its newest snapshot: the microVM is stopped, its disk returned and booted again, and the count in its corner goes back to what it was.</li>
-<li><b>Rebuild</b> destroys the microVM and boots a new one from the image in its place, and the tile says how long it was away. A place left empty gets a tile again.</li>
-<li><b>Kill</b> ends the microVM as a crash or a power cut would: its process killed outright, with no shutdown. Nothing asks for it back: the keeper finds the machine stopped, as it would one that died any other way, and starts it again with its disk as it was, and the tile says how long it was away.</li>
-<li><b>Clone</b> makes as many new microVMs from the tile's disk as it is as the number beside it says, for each tile chosen: each a ZFS clone, so it copies nothing and takes no space until it writes, and each draws a new place below the picture, counting on from the count it was cloned with. The wall takes MAXTILES places; the host's memory and the addresses its network gives out end most walls sooner, and the tile says which.</li>
-<li><b>Remove</b> takes the tile away, and its place stays empty.</li>
-<li><b>Reset the wall</b> takes every tile and every clone away and runs the picture's own tiles again from the image, and the clock above says how long the whole wall took, from the press.</li>
+<li><b>Snapshot</b> takes the tile's disk and its volume as they are, at one moment, in one ZFS call.</li>
+<li><b>Restore</b> puts the disk and the volume back to the newest snapshot together: the microVM is stopped, both returned and booted again, and both counts in its corner go back to what they were.</li>
+<li><b>Rebuild</b> destroys the microVM and its disk and boots a new one from the image in its place, on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine. The tile says how long it was away. A place left empty gets a tile again.</li>
+<li><b>Kill</b> ends the microVM as a crash or a power cut would: its process killed outright, with no shutdown. Nothing asks for it back: the keeper finds the machine stopped, as it would one that died any other way, and starts it again with its disk and its volume as they were, and the tile says how long it was away.</li>
+<li><b>Clone</b> makes as many new microVMs from the tile's disk and volume as they are, at one moment, as the number beside it says, for each tile chosen: each a ZFS clone, its volume one too, so it copies nothing and takes no space until it writes, and each draws a new place below the picture, counting on from the counts it was cloned with. The wall takes MAXTILES places; the host's memory and the addresses its network gives out end most walls sooner, and the tile says which.</li>
+<li><b>Remove</b> takes the tile away with its volume and their snapshots, and its place stays empty.</li>
+<li><b>Reset the wall</b> takes every tile and every clone away with its volume and runs the picture's own tiles again from the image on new volumes, and the clock above says how long the whole wall took, from the press.</li>
 </ul>
 <h2>The line under the clock</h2>
-<p>What the host holds of the wall, as the keeper reads it from the host every few seconds: how many of its microVMs run, the memory they take (each microVM's resident memory on the host), and their disks counted two ways: as full copies would take them, and as ZFS keeps them, each tile's own changes and the image they all share counted once. Each tile shows the disk it holds of its own beside its name.</p>
+<p>What the host holds of the wall, as the keeper reads it from the host every few seconds: how many of its microVMs run, the memory they take (each microVM's resident memory on the host), and their disks counted two ways: as full copies would take them, and as ZFS keeps them, each tile's own changes and the image they all share counted once; then their volumes, as ZFS keeps them, which is mostly the room it sets aside for each, written to or not. Each tile shows the disk it holds of its own beside its name.</p>
 <h2>Who does it</h2>
 <p>The page cannot do any of that by itself, and that is the point: it is a program in a container, and nothing in a container commands the host. A button only leaves a request on the wall. The keeper, a small loop on the host (<code>05-demoscene-wall.sh</code>, running as the service <code>demoscene-keeper</code>), asks the wall what was asked, does it with the <code>vmx</code> command and says what became of it, which the tile shows. It also runs again any tile that is gone or stopped, however it went. Every tile sends an id made when its program starts, so the wall can tell a new machine from the old one. A tile that has just booted says, for ten seconds, how long its microVM took from its kernel starting to its program running, as the machine itself counts it. With no keeper watching, a request waits, and the page says so. The same requests can come from a script: <code>05-demoscene-wall.sh --show</code> presses the buttons in a fixed order, each step waited out, for a recording.</p>
 <h2>How it is put together</h2>
@@ -890,7 +906,7 @@ if(s.era!==era){era=s.era;tiles.forEach((o,i)=>{o.v=-1;o.im.removeAttribute('src
 while(tiles.length<s.tiles.length)add(tiles.length);
 while(tiles.length>s.tiles.length){const o=tiles.pop();sel.delete(tiles.length);o.d.remove();}
 s.tiles.forEach((t,i)=>{const o=tiles[i];if(t.v>0&&t.v!==o.v){o.v=t.v;o.im.src='/tile/'+i+'?e='+era+'&v='+t.v;}
-o.c.textContent=t.frames?t.frames.toLocaleString('en-US'):'';
+o.c.textContent=t.frames?(t.vol_frames!==undefined?'disk '+t.frames.toLocaleString('en-US')+'\nvolume '+t.vol_frames.toLocaleString('en-US'):t.frames.toLocaleString('en-US')):'';
 const[text,kind]=label(t,i);o.l.textContent=text;
 o.d.classList.toggle('none',t.v===0);o.d.classList.toggle('dead',t.v>0&&t.age_ms>2000);o.d.classList.toggle('asked',t.asked);
 for(const k of ['busy','fresh','said'])o.d.classList.toggle(k,kind===k);});
@@ -898,7 +914,7 @@ held=!!s.reset;
 $('live').innerHTML='<b>'+s.live+'</b> of '+s.tiles.length+' microVMs live';$('fps').innerHTML='<b>'+s.fps.toFixed(1)+'</b> frames a second';
 $('clock').innerHTML=s.reset==='asked'?'a reset is asked':s.reset==='down'?'taking the wall down, <b>'+s.reset_s.toFixed(1)+' s</b>':s.reset==='up'?'the wall comes back: <b>'+s.up+'</b> of '+s.tiles.length+', <b>'+s.since_s.toFixed(1)+' s</b>':s.full_s>0?'all '+s.full_n+' up in <b>'+s.full_s.toFixed(1)+' s</b>':'<b>'+s.since_s.toFixed(1)+' s</b> since the start';
 $('new').innerHTML=s.replaced>0?'<b>'+s.replaced+'</b> replaced':'';
-const h=s.host;$('host').innerHTML=h?'<b>'+h.tiles+'</b> microVMs &middot; <b>'+size(h.memory)+'</b> of memory &middot; their disks: <b>'+size(h.copies)+'</b> as full copies, <b>'+size(h.disk)+'</b> as ZFS keeps them':'';
+const h=s.host;$('host').innerHTML=h?'<b>'+h.tiles+'</b> microVMs &middot; <b>'+size(h.memory)+'</b> of memory &middot; their disks: <b>'+size(h.copies)+'</b> as full copies, <b>'+size(h.disk)+'</b> as ZFS keeps them'+(h.volumes?' &middot; their volumes: <b>'+size(h.volumes)+'</b>':''):'';
 $('reset').disabled=!!s.reset;$('reset').textContent=s.reset?'Resetting':'Reset the wall';
 const waiting=s.reset==='asked'||s.tiles.some(t=>t.act||t.asked);
 $('hint').innerHTML=!s.keeper&&waiting?'<b>no keeper is watching</b>: nothing asked here is done until the host runs 05-demoscene-wall.sh --keep':'';

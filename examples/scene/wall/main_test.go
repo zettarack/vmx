@@ -66,14 +66,16 @@ type stateDoc struct {
 		More   int    `json:"more"`
 		Said   string `json:"said"`
 		Frames int64  `json:"frames"`
+		Vol    *int64 `json:"vol_frames"`
 		Own    int64  `json:"own"`
 	} `json:"tiles"`
 	Host *struct {
-		Tiles  int   `json:"tiles"`
-		Memory int64 `json:"memory"`
-		Copies int64 `json:"copies"`
-		Disk   int64 `json:"disk"`
-		Age    int64 `json:"age_ms"`
+		Tiles   int   `json:"tiles"`
+		Memory  int64 `json:"memory"`
+		Copies  int64 `json:"copies"`
+		Disk    int64 `json:"disk"`
+		Volumes int64 `json:"volumes"`
+		Age     int64 `json:"age_ms"`
 	} `json:"host"`
 	Up       int     `json:"up"`
 	Full     float64 `json:"full_s"`
@@ -438,19 +440,19 @@ func TestTheHostIsShownAsTheKeeperSaysIt(t *testing.T) {
 	if d := stateOf(t, s); d.Host != nil || d.Tiles[0].Own != 0 {
 		t.Fatalf("nothing said, nothing shown: %+v", d.Host)
 	}
-	body := `{"tiles":4,"memory":402653184,"copies":159383552,"disk":38076416,"own":{"0":8192,"2":12288,"700":4096}}`
+	body := `{"tiles":4,"memory":402653184,"copies":159383552,"disk":38076416,"volumes":70254592,"own":{"0":8192,"2":12288,"700":4096}}`
 	if got := ask(t, s, "POST", "/host", body); got != http.StatusNoContent {
 		t.Fatalf("POST /host: %d", got)
 	}
 	d := stateOf(t, s)
-	if h := d.Host; h == nil || h.Tiles != 4 || h.Memory != 402653184 || h.Copies != 159383552 || h.Disk != 38076416 || h.Age < 0 || h.Age > 1000 {
+	if h := d.Host; h == nil || h.Tiles != 4 || h.Memory != 402653184 || h.Copies != 159383552 || h.Disk != 38076416 || h.Volumes != 70254592 || h.Age < 0 || h.Age > 1000 {
 		t.Fatalf("the host as said: %+v", h)
 	}
 	if d.Tiles[0].Own != 8192 || d.Tiles[1].Own != 0 || d.Tiles[2].Own != 12288 || len(s.tiles) != 4 {
 		t.Errorf("each tile's own, and no place grown: %+v, %d places", d.Tiles, len(s.tiles))
 	}
 	ask(t, s, "POST", "/host", `{"tiles":3,"memory":1,"copies":2,"disk":3,"own":{"1":512}}`)
-	if d := stateOf(t, s); d.Tiles[0].Own != 0 || d.Tiles[1].Own != 512 || d.Host.Tiles != 3 {
+	if d := stateOf(t, s); d.Tiles[0].Own != 0 || d.Tiles[1].Own != 512 || d.Host.Tiles != 3 || d.Host.Volumes != 0 {
 		t.Errorf("the newest said is what is shown: %+v %+v", d.Host, d.Tiles)
 	}
 	s.mu.Lock()
@@ -471,7 +473,7 @@ func TestWhatTheHostSaysIsCheckedBeforeAnyIsKept(t *testing.T) {
 		t.Fatalf("POST /host: %d", got)
 	}
 	long := `{"tiles":4,"own":{` + strings.Repeat(`"1":1,`, 20000) + `"2":2}}`
-	for _, body := range []string{"", "[]", "4", `{"tiles":"4"}`, `{"tiles":4,"cpus":2}`, `{"tiles":-1}`, `{"memory":-1}`, `{"copies":-1}`, `{"disk":-1}`,
+	for _, body := range []string{"", "[]", "4", `{"tiles":"4"}`, `{"tiles":4,"cpus":2}`, `{"tiles":-1}`, `{"memory":-1}`, `{"copies":-1}`, `{"disk":-1}`, `{"volumes":-1}`, `{"volumes":"1"}`,
 		`{"own":{"x":1}}`, `{"own":{"-1":1}}`, `{"own":{"` + itoa(maxTiles) + `":1}}`, `{"own":{"1":-5}}`, `{"own":{"1":"5"}}`, `{"tiles":4.5}`, long} {
 		if got := ask(t, s, "POST", "/host", body); got != http.StatusBadRequest {
 			t.Errorf("POST /host %.60q: %d, want %d", body, got, http.StatusBadRequest)
@@ -710,6 +712,8 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 		"<h2>When nobody watches</h2>", "the picture moves within a frame",
 		"<li><b>Snapshot</b>", "<li><b>Restore</b>", "<li><b>Rebuild</b>", "<li><b>Kill</b>", "<li><b>Clone</b>", "<li><b>Remove</b>", "<li><b>Reset the wall</b>",
 		"how long its microVM took from its kernel starting to its program running", "<code>05-demoscene-wall.sh --show</code>",
+		"twice, in its corner: on its <b>disk</b>", "its <b>volume</b>, a ZFS volume of its own that outlives the machine",
+		"the disk's count starts again from nothing and the volume's goes on", "both counts in its corner go back",
 	} {
 		if !strings.Contains(page, said) {
 			t.Errorf("the info does not say %q", said)
@@ -720,5 +724,57 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 		if !strings.Contains(page, `data-do="`+b+`"`) {
 			t.Errorf("the tools bar has no %s button", b)
 		}
+	}
+}
+
+// A tile with a volume sends its count beside its disk's (X-Volume-Frames),
+// and the state gives both; one that sends none, or what is not a count
+// (empty, a word, a negative, past int64), has none; a tile that has not
+// drawn has none; the next frame's count replaces the last; and the
+// page shows the two counts, each named, only when there is a volume's.
+func TestATilesVolumeCountIsGivenBesideItsDisks(t *testing.T) {
+	s := fourTiles()
+	send := func(i int, vol string) {
+		t.Helper()
+		h := []string{"X-Boot", "b" + itoa(i), "X-Host", "tile-" + itoa(i), "X-Frames", "12"}
+		if vol != "none" {
+			h = append(h, "X-Volume-Frames", vol)
+		}
+		if c := ask(t, s, "POST", "/tile/"+itoa(i), "\x89PNG\r\n\x1a\nxx", h...); c != http.StatusNoContent {
+			t.Fatalf("a frame for %d: %d", i, c)
+		}
+	}
+	send(0, "345")
+	send(1, "none")
+	send(2, "-3")
+	d := stateOf(t, s)
+	if v := d.Tiles[0].Vol; v == nil || *v != 345 || d.Tiles[0].Frames != 12 {
+		t.Errorf("a tile with a volume: frames %d, volume %v", d.Tiles[0].Frames, v)
+	}
+	for _, i := range []int{1, 2, 3} {
+		if v := d.Tiles[i].Vol; v != nil {
+			t.Errorf("tile %d has a volume's count, %d", i, *v)
+		}
+	}
+	for _, bad := range []string{"", "many", "9223372036854775808", "1e3", " 7"} {
+		send(1, bad)
+		if v := stateOf(t, s).Tiles[1].Vol; v != nil {
+			t.Errorf("%q was taken for a count: %d", bad, *v)
+		}
+	}
+	send(0, "346")
+	send(0, "346")
+	if v := stateOf(t, s).Tiles[0].Vol; v == nil || *v != 346 {
+		t.Errorf("the next count: %v", v)
+	}
+	// Back to none: a tile made again with no volume.
+	send(0, "none")
+	if v := stateOf(t, s).Tiles[0].Vol; v != nil {
+		t.Errorf("a tile with no volume now still has one's count: %d", *v)
+	}
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if !strings.Contains(w.Body.String(), `t.vol_frames!==undefined?'disk '+t.frames.toLocaleString('en-US')+'\nvolume '+t.vol_frames.toLocaleString('en-US')`) {
+		t.Error("the page does not show the two counts, each named")
 	}
 }

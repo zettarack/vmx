@@ -49,7 +49,7 @@ else.
 | `02-microvms.sh [COUNT]` | A row of microVMs from the `debian-13` golden every vmx builds at its first boot. |
 | `03-web-containers.sh [COUNT]` | nginx, COUNT copies, each led to from a port of the host. |
 | `04-golden-web.sh [COUNT]` | Your own golden the whole way: a server set up by `golden-web.yaml`, cut into a microVM golden, COUNT clones each serving its own page. |
-| `05-demoscene-wall.sh [--from DIR]` | Forty containers drawing one animated picture together in your browser (`scene/`); its keeper runs as a service and replaces a tile that is clicked or goes; the page's info button says how it all works. |
+| `05-demoscene-wall.sh [--from DIR]` | Forty containers drawing one animated picture together in your browser (`scene/`), each counting its frames on its disk and on a volume of its own that outlives its machine; its keeper runs as a service, does what the page's buttons ask (snapshot, restore, rebuild, kill, clone, remove) and replaces a tile that goes; the page's info button says how it all works. |
 | `06-one-shot-job.sh ['COMMAND']` | A job run to its end in a microVM made for it, the way a function service runs one, its output and exit status kept. |
 | `07-cron-container.sh` | Scheduled tasks that last: cron in a container, its work on a volume. |
 | `my-image.sh` | The template for your own image: from a registry or an archive, COUNT copies, ports and environment. |
@@ -73,7 +73,7 @@ with 64 GiB):
 | A container run | the command returns in about half a second |
 | A one-shot job, from asking to its end | about 8.5 s for a job that does almost nothing |
 | A golden of your own (`04-golden-web.sh`): the base set up with nginx and powered off | 22 s |
-| 40 containers run one after another | 23 s; all 40 drawing the wall 30 s after the first, about 300 frames a second together |
+| 40 containers run, sixteen at a time, each with a volume of its own made for it | all 40 drawing the wall 5.3 s after the first was run, about 300 frames a second together |
 | A server from a template, from the clone to its ssh answering | 12 to 23 s |
 | The same server stopped, snapshotted, started; stopped, rolled back, started | ssh again 10 s after each start |
 | An application from a recipe (AdGuard Home), built until its health page answers | 33 s |

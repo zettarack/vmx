@@ -16,7 +16,10 @@ runs as containers on a vmx host:
   frames a second (8), and sends each frame to the wall. A frame deeper in
   the zoom costs more: the wall shows real work. It counts the frames it
   has drawn on its own disk (`/var/lib/scene/frames`, written and flushed
-  every second), and the page shows the count in the tile's corner. A tile
+  every second) and, given a volume (`VOLUME`, the directory vmx mounts it
+  on, which it checks is a mount), on that volume too; the page shows both
+  in the tile's corner. The disk is the machine's and is made again from
+  the image with it; the volume outlives it. A tile
   whose microVM is named `tile-N` draws place N, whatever `TILE` says, so a
   clone named for a new place draws that place. It draws only while
   somebody watches: with no page asking the wall how it is for three
@@ -34,13 +37,13 @@ wall do their verb to every tile chosen, at once:
 
 | Button | What becomes of each tile chosen |
 |---|---|
-| **Snapshot** | its disk as it is now, in a moment (`vmx container snapshot`) |
-| **Restore** | its disk put back to its newest snapshot: the microVM stopped, its disk returned and booted again, in under a second; the count in its corner goes back to what it was (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so |
-| **Rebuild** | its microVM destroyed and a new one booted from the image; the tile says how long it was away. An empty place gets a tile again |
-| **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk as it was; the tile says how long its place was without a picture |
-| **Clone** N | as many new microVMs from its disk as it is as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the count it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
-| **Remove** | the tile taken away; its place stays empty. A tile a clone stands on is not removed until the clone is |
-| **Reset the wall** | every tile and clone taken away and the picture's own run again from the image; the clock says how long the whole wall took, from the press |
+| **Snapshot** | its disk and its volume as they are now, at one moment, in one zfs call (`vmx container snapshot`) |
+| **Restore** | its disk and its volume put back to its newest snapshot together: the microVM stopped, both returned and booted again, in under a second; both counts in its corner go back to what they were (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so |
+| **Rebuild** | its microVM and its disk destroyed and a new one booted from the image on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine; the tile says how long it was away. An empty place gets a tile again |
+| **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk and its volume as they were; the tile says how long its place was without a picture |
+| **Clone** N | as many new microVMs from its disk and its volume as they are, at one moment, as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, its volume one too (vmx names the copy NEW-VOLUME), so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the counts it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
+| **Remove** | the tile taken away with its volume and their snapshots; its place stays empty. A tile a clone stands on is not removed until the clone is, and a volume a clone's copy stands on stays until the copy goes: the keeper takes it away then |
+| **Reset the wall** | every tile and clone taken away with its volume and the picture's own run again from the image on new volumes; the clock says how long the whole wall took, from the press |
 
 Each tile says on the page what became of it, and a press made while
 the tile is busy waits its turn. For ten seconds after it boots, a tile
@@ -88,10 +91,12 @@ the wall's side of all of this.
 
 The line under the clock is the keeper's too. Every two seconds it reads
 the tiles' microVMs on the host (`ps`: each one's resident memory) and
-their disks (`zfs list`: what each tile's volume refers to, which is what a
+their disks (`zfs list`: what each tile's disk refers to, which is what a
 full copy would take, and what it holds of its own, with each image the
-tiles are clones of counted once), and posts them to the wall (`POST
-/host`). The page shows them, and each tile's own share beside its name.
+tiles are clones of counted once), and their volumes (16 MiB each, which
+ZFS keeps room for in full, written to or not), and posts them to the wall
+(`POST /host`). The page shows them, and each tile's own share beside its
+name.
 Forty tiles on a vmx host, measured: 263 MiB as full copies, 12 MiB as
 ZFS keeps them (each tile's own 140 KiB or so, and the image they share,
 once), and 5.6 GiB of memory.
@@ -100,12 +105,12 @@ Build both images on any machine with Go and Podman (or Docker):
 
 ```sh
 cd scene
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-agent ./agent
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:4 .
-podman build -f Containerfile.wall -t scene-wall:9 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:4
-podman save --format oci-archive -o scene-wall.tar scene-wall:9
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
+podman build -f Containerfile.agent -t scene-agent:5 .
+podman build -f Containerfile.wall -t scene-wall:10 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:5
+podman save --format oci-archive -o scene-wall.tar scene-wall:10
 for f in scene-agent scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -125,12 +130,13 @@ it. Archives you built yourself have digests of their own: name them, as
 printed above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:4 \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:9 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:5 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:10 \
 ./05-demoscene-wall.sh
 ```
 
 Try either program on your own computer first: `go run ./wall` serves
 <http://localhost:8090>, and `TILE=0 WALL=http://localhost:8090 go run ./agent`
 draws its tile there (its count is kept only where it may write
-`/var/lib/scene`, as in its microVM).
+`/var/lib/scene`, as in its microVM; `VOLUME` names a directory only when
+it is a mount point, so leave it unset there).

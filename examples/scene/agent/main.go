@@ -11,7 +11,13 @@
 // It counts the frames it has drawn on its own disk (/var/lib/scene,
 // written and flushed every second) and sends the count with each frame,
 // so a snapshot of its disk holds the count it had then, and a rollback
-// to that snapshot is seen on the wall as the count going back. A host
+// to that snapshot is seen on the wall as the count going back. Given a
+// volume (VOLUME, the directory vmx mounts it on), it counts them there
+// as well: the disk is the machine's and is made again from the image
+// with it, the volume outlives it, so a tile made again (Rebuild, or a
+// new image rolled out) starts its disk's count from nothing and goes on
+// with its volume's. A snapshot takes both at one moment and a rollback
+// returns both; a clone copies both. A host
 // named tile-N (the container's name, which vmx gives the microVM) draws
 // place N whatever TILE says: a clone of tile-07 named tile-40 draws a
 // place of its own, below the picture's own rows.
@@ -40,12 +46,12 @@ import (
 )
 
 // counted is where the count of frames drawn is kept, on the tile's own
-// disk.
+// disk; on a volume it is the file frames in its directory.
 const counted = "/var/lib/scene/frames"
 
-// readCount is the count kept on the disk, 0 when there is none yet.
-func readCount() int64 {
-	b, err := os.ReadFile(counted)
+// readCount is the count kept in file, 0 when there is none yet.
+func readCount(file string) int64 {
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return 0
 	}
@@ -56,13 +62,13 @@ func readCount() int64 {
 	return n
 }
 
-// writeCount keeps n on the disk, flushed, so a snapshot taken a moment
-// later holds it: written to a file beside it, synced, and renamed over.
-func writeCount(n int64) error {
-	if err := os.MkdirAll(filepath.Dir(counted), 0o755); err != nil {
+// writeCount keeps n in file, flushed, so a snapshot taken a moment later
+// holds it: written to a file beside it, synced, and renamed over.
+func writeCount(file string, n int64) error {
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		return err
 	}
-	tmp := counted + ".new"
+	tmp := file + ".new"
 	f, err := os.Create(tmp)
 	if err != nil {
 		return err
@@ -78,7 +84,23 @@ func writeCount(n int64) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, counted)
+	return os.Rename(tmp, file)
+}
+
+// mounted says whether dir is a mount point, as the kernel lists them
+// (/proc/self/mounts): a volume is one, and a directory that only looks
+// like it is on the machine's own disk, whose count would not outlive it.
+func mounted(dir string) (bool, error) {
+	b, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(line); len(f) > 1 && f[1] == dir {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // place is the tile's place: the number in a host name tile-N, else TILE.
@@ -181,7 +203,10 @@ func upMs() int64 {
 	return int64(v * 1000)
 }
 
-func send(c *http.Client, wall string, tile int, host, boot string, up, ms, count int64, img *image.RGBA) error {
+// send hands the wall a frame drawn: the picture, and with it the tile's
+// counts, its disk's and, when it has a volume (vcount 0 and up), its
+// volume's.
+func send(c *http.Client, wall string, tile int, host, boot string, up, ms, count, vcount int64, img *image.RGBA) error {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return err
@@ -198,6 +223,9 @@ func send(c *http.Client, wall string, tile int, host, boot string, up, ms, coun
 		req.Header.Set("X-Up-Ms", strconv.FormatInt(up, 10))
 	}
 	req.Header.Set("X-Frames", strconv.FormatInt(count, 10))
+	if vcount >= 0 {
+		req.Header.Set("X-Volume-Frames", strconv.FormatInt(vcount, 10))
+	}
 	resp, err := c.Do(req)
 	if err != nil {
 		return err
@@ -230,7 +258,24 @@ func main() {
 		host = "tile-" + strconv.Itoa(tile)
 	}
 	tile = place(host, tile)
-	count := readCount()
+	count := readCount(counted)
+	// The volume's count, -1 when the tile has no volume. One named that is
+	// not mounted is a run that went wrong: said, and nothing drawn.
+	vol, vcount, vfile := os.Getenv("VOLUME"), int64(-1), ""
+	if vol != "" {
+		if !filepath.IsAbs(vol) {
+			log.Fatalf("scene-agent: VOLUME=%s is not an absolute path", vol)
+		}
+		on, err := mounted(vol)
+		if err != nil {
+			log.Fatalf("scene-agent: reading the mounts: %v", err)
+		}
+		if !on {
+			log.Fatalf("scene-agent: VOLUME=%s is not mounted: no volume is there, and a count on the disk would not outlive it", vol)
+		}
+		vfile = filepath.Join(vol, "frames")
+		vcount = readCount(vfile)
+	}
 	kept := time.Now()
 	// This start's own id: random, so two microVMs of one name are two.
 	// With no randomness to read, the time it started, which differs too.
@@ -239,7 +284,11 @@ func main() {
 	if _, err := rand.Read(id); err == nil {
 		boot = hex.EncodeToString(id)
 	}
-	log.Printf("tile %d (%s, boot %s, the machine up %d ms): drawing for %s, %d frames drawn on this disk before", tile, host, boot, up, wall, count)
+	onVol := ""
+	if vcount >= 0 {
+		onVol = fmt.Sprintf(", %d on its volume (%s)", vcount, vol)
+	}
+	log.Printf("tile %d (%s, boot %s, the machine up %d ms): drawing for %s, %d frames drawn on this disk before%s", tile, host, boot, up, wall, count, onVol)
 	c := &http.Client{Timeout: 5 * time.Second}
 	frames, spent, since := 0, time.Duration(0), time.Now()
 	idle := false
@@ -266,15 +315,24 @@ func main() {
 		t0 := time.Now()
 		img := render(tile, f)
 		took := time.Since(t0)
-		if err := send(c, wall, tile, host, boot, up, took.Milliseconds(), count+1, img); err != nil {
+		next := vcount
+		if next >= 0 {
+			next++
+		}
+		if err := send(c, wall, tile, host, boot, up, took.Milliseconds(), count+1, next, img); err != nil {
 			log.Printf("tile %d: sending the frame: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
 			continue
 		}
-		frames, spent, count = frames+1, spent+took, count+1
+		frames, spent, count, vcount = frames+1, spent+took, count+1, next
 		if time.Since(kept) >= time.Second {
-			if err := writeCount(count); err != nil {
+			if err := writeCount(counted, count); err != nil {
 				log.Printf("tile %d: keeping the count on the disk: %v", tile, err)
+			}
+			if vcount >= 0 {
+				if err := writeCount(vfile, vcount); err != nil {
+					log.Printf("tile %d: keeping the count on the volume: %v", tile, err)
+				}
 			}
 			kept = time.Now()
 		}
