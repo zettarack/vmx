@@ -69,9 +69,15 @@
 #                   rest draw, so the new version rolls over the picture a
 #                   row at a time; the disk's count starts again and the
 #                   volume's goes on, as data does through an upgrade; its
-#                   snapshots go with the old machine. Pressed again, each goes back to the image it came from:
-#                   the roll back is the same button. A Rebuild, a clone or
-#                   a tile run again keeps the version it has
+#                   snapshots go with the old machine. A tile on the new
+#                   version already says so. A Rebuild, a clone or a tile
+#                   run again keeps the version it has
+#   Roll back       the same, back to the first image, scene-agent:7: green
+#                   to blue, eight at a time over the wall. It changes the
+#                   program and keeps the data (the volume's count goes on);
+#                   Restore is the other way back, the data to a snapshot
+#                   with the program kept. A tile on the first version says
+#                   there is nothing to roll back to
 #   Rebuild         its microVM and its disk destroyed and a new one booted
 #                   from the image on the same volume, timed: the disk's
 #                   count starts again from nothing and the volume's goes
@@ -172,7 +178,7 @@
 #   ./05-demoscene-wall.sh --show       the wall's own show, the same take every time, for a recording:
 #                                       Reset, Snapshot every tile, Kill eight (waited out until
 #                                       the keeper has them back), Restore every tile,
-#                                       Rebuild eight, Update every tile and back, Clone one twelve
+#                                       Rebuild eight, Update every tile, Roll back every tile, Clone one twelve
 #                                       times, Reset; open the page first
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
@@ -182,7 +188,7 @@
 # of your own and name them with AGENT_IMAGE, NEXT_IMAGE and WALL_IMAGE.
 # --from DIR takes scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 # from DIR and checks each against its image's digest below (scene-agent:7,
-# its next version scene-agent:7-green, and scene-wall:13); AGENT_ARCHIVE
+# its next version scene-agent:7-green, and scene-wall:14); AGENT_ARCHIVE
 # and AGENT_DIGEST, NEXT_ARCHIVE and NEXT_DIGEST, WALL_ARCHIVE and
 # WALL_DIGEST name other archives. COLS (8),
 # ROWS (5) and PORT (8090, this host's port for the page) change the wall.
@@ -191,10 +197,10 @@
 #   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:7 NEXT_IMAGE=ghcr.io/you/scene-agent:7-green WALL_IMAGE=ghcr.io/you/scene-wall:13 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:7 NEXT_IMAGE=ghcr.io/you/scene-agent:7-green WALL_IMAGE=ghcr.io/you/scene-wall:14 ./05-demoscene-wall.sh
 #   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:7 \
 #   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:7-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:13 ./05-demoscene-wall.sh
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:14 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -231,14 +237,21 @@ imgs=$here/.made/05-demoscene-wall.images
 # clone's copy of it stands (a clone rebuilt is on a new disk and still on
 # its copy), and the keeper takes it away once the copy has gone.
 orphans=$here/.made/05-demoscene-wall.orphans
+# What the keeper and the wall say to each other, the keeper's side: the
+# wall says its own in every answer (scene/wall's protocol), and a wall of
+# another is asked nothing. 2 since 2026-11-18: a restore is asked as
+# restore, and rollback is a roll back to the first version; an older
+# wall's "rollback" was a restore, and taken for a roll back it would have
+# put a new machine in the place, its snapshots gone with the old one.
+protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
 # The images' digests, the tiles' scene-agent:7 and its second version
-# scene-agent:7-green, and the wall's scene-wall:13,
+# scene-agent:7-green, and the wall's scene-wall:14,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
 agent_digest=sha256:f9bad5aeef569566d2dbbf7305e85a4facf029e644369a68e275b5c766b3d507
-wall_digest=sha256:5b6f1d23ada412f45cb4dc25d5946419cd5744b327b0d638471ddc3b9829cd26
+wall_digest=sha256:1aaf0e4284962c5e518996e3dc04f5d349875fff9dc32329cf6b70dc7afac422
 next_digest=sha256:cd3c9a6aee8abaaf7a7eba3cb0985cc164f06b0e72146075b7e0f21d748fc7d8
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
@@ -250,11 +263,11 @@ if [ "${1:-}" = --from ]; then
 	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-green.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
 	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:7}
 	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:7-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:13}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:14}
 fi
 agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:7}
 next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:7-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:13}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:14}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -468,10 +481,10 @@ if [ "${1:-}" = --show ]; then
 	step "Reset the wall";                reset; sleep 4
 	step "Snapshot every tile";           press snapshot "${every[@]}"; settle 60; sleep 4
 	step "Kill ${#some[@]} tiles outright";  g=$(gens) || die "the wall did not say how it is"; press kill "${some[@]}"; back "$g" "${some[@]}"; settle 60; sleep 4
-	step "Restore every tile";            press rollback "${every[@]}"; settle 120; sleep 4
+	step "Restore every tile";            press restore "${every[@]}"; settle 120; sleep 4
 	step "Rebuild ${#some[@]} tiles: a new disk each, the same volume"; press rebuild "${some[@]}"; settle 120; sleep 6
-	step "Update every tile: the new version rolls over the wall"; press update "${every[@]}"; settle 240; sleep 6
-	step "Update every tile again: the roll back"; press update "${every[@]}"; settle 240; sleep 4
+	step "Update every tile: green rolls over the wall"; press update "${every[@]}"; settle 240; sleep 6
+	step "Roll back every tile: blue rolls back over it"; press rollback "${every[@]}"; settle 240; sleep 4
 	step "Clone tile 0, twelve times";    press clone 12 0; settle 180; sleep 6
 	step "Reset the wall";                reset
 	step "the show is over"
@@ -687,7 +700,7 @@ if [ "${1:-}" = --keep-here ]; then
 	# (nothing when the tile shows it itself), and fails when it was not
 	# done.
 	act_on() {
-		local name=$1 label s out places=() new want stop rc running pid
+		local name=$1 label s out places=() new want stop rc running pid nope
 		if [ "$3" != rebuild ] && ! listed "$name"; then
 			if has "$name"; then echo "not a tile this script made: left as it is"; else echo "an empty place: Rebuild puts a tile here"; fi
 			return 1
@@ -698,7 +711,7 @@ if [ "${1:-}" = --keep-here ]; then
 			try container snapshot "$name" "$label" || { echo "no snapshot: $why"; return 1; }
 			echo "snapshot at $(clock_of "$label")"
 			;;
-		rollback)
+		restore)
 			# The snapshot named (the page's list of the tile's), else the
 			# newest a person took, not one a clone was made from; the ones
 			# newer than it go with the restore, and are counted first.
@@ -749,27 +762,36 @@ if [ "${1:-}" = --keep-here ]; then
 			fi
 			echo "   $name: a new one started in $(since "$s") s" >&2
 			;;
-		update)
-			# The tile moved to the wall's other image: the next version from
-			# the first, the first from the next (pressed again, it rolls
-			# back). Its microVM and disk go, a new one is run from that
-			# image on the same volume; the keeper's dispatch lets eight at
-			# a time do it, so it rolls over the wall while the rest draw.
-			[ -n "$next" ] || { echo "not updated: this wall was made without a second image; --remove and make it again"; return 1; }
+		update | rollback)
+			# update: the tile moved to the wall's new version, its second
+			# image; rollback: back to the first. Its microVM and disk go
+			# and a new one is run from that image on the same volume; the
+			# keeper's dispatch lets eight at a time do either, so it rolls
+			# over the wall while the rest draw. 2026-11-18: Update pressed
+			# again rolled back; the roll back is a button of its own now
+			# (the operator: "a rollback would be better suited? like a
+			# button"), and Update only ever goes forward.
+			if [ "$3" = update ]; then want=$next label="updated to" nope="not updated"; else want=$agent label="back to" nope="not rolled back"; fi
+			[ -n "$next" ] || { echo "$nope: this wall was made without a second image; --remove and make it again"; return 1; }
 			out=$(vmx container list --json | jq -r --arg n "$name" '.[] | select(.name == $n) | .image // empty') || out=
-			[ -n "$out" ] || { echo "nothing to update: it is gone"; return 1; }
-			if [ "${out##*/}" = "${next##*/}" ]; then want=$agent label="back to"; else want=$next label="updated to"; fi
+			[ -n "$out" ] || { echo "$nope: it is gone"; return 1; }
+			# Already there: nothing to do, and said as not done, so the
+			# wall stops waiting for a new machine.
+			if [ "${out##*/}" = "${want##*/}" ]; then
+				if [ "$3" = update ]; then echo "already on ${want##*/}, the new version"; else echo "nothing to roll back to: it runs ${want##*/}"; fi
+				return 1
+			fi
 			s=$(date +%s%N)
 			if ! try container remove "$name"; then
 				case $why in
-				*clone*) echo "not updated: a clone stands on its disk; remove the clone first" ;;
-				*) echo "not updated: $why" ;;
+				*clone*) echo "$nope: a clone stands on its disk; remove the clone first" ;;
+				*) echo "$nope: $why" ;;
 				esac
 				return 1
 			fi
 			img_set "$name" "$want"
 			if ! run_tile "$name"; then
-				echo "not ${label% *}: the new one did not start; the keeper tries again"
+				echo "$nope: the new one did not start; the keeper tries again"
 				return 1
 			fi
 			echo "$label ${want##*/} in $(since "$s") s"
@@ -917,7 +939,7 @@ if [ "${1:-}" = --keep-here ]; then
 	# said to the wall and the log.
 	job() {
 		: >"$busy/$2"
-		[ "$3" != update ] || : >"$busy/.update-$2"
+		case $3 in update | rollback) : >"$busy/.update-$2" ;; esac
 		(
 			if said=$(act_on "$2" "$1" "$3" "${4:-}" "${5:--}"); then f=0; else f=1; fi
 			say "$1" "$said" "$f"
@@ -1038,6 +1060,17 @@ if [ "${1:-}" = --keep-here ]; then
 		fi
 		# What the page asked for. A wall that does not answer is asked again.
 		doc=$(curl -s --max-time 2 "$url/asked") || doc=
+		# A wall of another protocol (one from before 2 says none): what it
+		# asks is not done, said once, as if it did not answer, until it is
+		# made again; a tile that goes is still run again.
+		p=$(jq -r '.protocol // 1' <<<"$doc" 2>/dev/null) || p=
+		if [ -n "$doc" ] && [[ $p =~ ^[0-9]+$ ]] && [ "$p" != "$protocol" ]; then
+			if [ ! -e "$busy/.protocol" ]; then
+				: >"$busy/.protocol"
+				echo "   the wall speaks protocol $p and this keeper $protocol: nothing it asks is done; ${0##*/} --remove, then make it again" >&2
+			fi
+			doc=
+		fi
 		if [ "$(jq -r '.reset // false' <<<"$doc" 2>/dev/null)" = true ] && [ ! -e "$busy/.reset" ]; then
 			: >"$busy/.reset"
 			reset_wall </dev/null &
@@ -1057,9 +1090,9 @@ if [ "${1:-}" = --keep-here ]; then
 				# again at the next pass.
 				[ ! -e "$busy/$name" ] || continue
 				[ "$(jobs -rp | wc -l)" -lt 12 ] || break
-				# An update rolls over the wall eight at a time while the rest
-				# draw: one past that waits for the next pass.
-				if [ "$act" = update ] && [ "$(find "$busy" -maxdepth 1 -name '.update-*' | wc -l)" -ge 8 ]; then continue; fi
+				# An update or a roll back rolls over the wall eight at a time
+				# while the rest draw: one past that waits for the next pass.
+				if { [ "$act" = update ] || [ "$act" = rollback ]; } && [ "$(find "$busy" -maxdepth 1 -name '.update-*' | wc -l)" -ge 8 ]; then continue; fi
 				curl -s -o /dev/null --max-time 2 -X POST "$url/acting/$i" || continue
 				job "$i" "$name" "$act" "$cnt" "$at"
 			done <<<"$acts"

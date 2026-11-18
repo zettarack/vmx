@@ -42,7 +42,8 @@ type acts struct {
 		N    int    `json:"n"`
 		At   string `json:"at"`
 	} `json:"acts"`
-	Reset bool `json:"reset"`
+	Reset    bool `json:"reset"`
+	Protocol int  `json:"protocol"`
 }
 
 func askedOf(t *testing.T, s *wall) acts {
@@ -116,8 +117,8 @@ func TestAButtonsVerbsWaitForTheKeeperInTheirOrder(t *testing.T) {
 	if c := ask(t, s, "POST", "/do/snapshot", "[1,3]"); c != http.StatusNoContent {
 		t.Fatalf("snapshot: %d", c)
 	}
-	if c := ask(t, s, "POST", "/do/rollback", "[3]"); c != http.StatusNoContent {
-		t.Fatalf("rollback: %d", c)
+	if c := ask(t, s, "POST", "/do/restore", "[3]"); c != http.StatusNoContent {
+		t.Fatalf("restore: %d", c)
 	}
 	a := askedOf(t, s)
 	if len(a.Acts) != 2 || a.Acts[0].Tile != 1 || a.Acts[0].Do != "snapshot" || a.Acts[1].Tile != 3 || a.Acts[1].Do != "snapshot" {
@@ -135,7 +136,7 @@ func TestAButtonsVerbsWaitForTheKeeperInTheirOrder(t *testing.T) {
 	}
 	ask(t, s, "POST", "/did/3", "snapshot at 10:00:00")
 	a = askedOf(t, s)
-	if len(a.Acts) != 2 || a.Acts[1].Tile != 3 || a.Acts[1].Do != "rollback" {
+	if len(a.Acts) != 2 || a.Acts[1].Tile != 3 || a.Acts[1].Do != "restore" {
 		t.Fatalf("the next verb after the first is done: %+v", a.Acts)
 	}
 	if d := stateOf(t, s); d.Tiles[3].Said != "snapshot at 10:00:00" {
@@ -150,10 +151,10 @@ func TestAPressTwiceWaitsOnceAndATileHoldsFourAtMost(t *testing.T) {
 	if q := s.tiles[2].queue; len(q) != 1 {
 		t.Fatalf("one snapshot waits, not %v", q)
 	}
-	for _, v := range []string{"rollback", "snapshot", "rollback", "snapshot"} {
+	for _, v := range []string{"restore", "snapshot", "restore", "snapshot"} {
 		ask(t, s, "POST", "/do/"+v, "[2]")
 	}
-	if q := s.tiles[2].queue; len(q) != queueMax || verbsOf(q) != "snapshot rollback snapshot rollback" {
+	if q := s.tiles[2].queue; len(q) != queueMax || verbsOf(q) != "snapshot restore snapshot restore" {
 		t.Fatalf("four wait, the fifth is not kept: %v", q)
 	}
 }
@@ -247,6 +248,54 @@ func TestAnUpdateIsANewMachineInThePlace(t *testing.T) {
 	}
 }
 
+// Every answer to the keeper's question says the wall's protocol, 2, which
+// the keeper holds against its own before it does anything asked: a
+// keeper of 2 met an older wall's restore, asked as rollback, as a roll
+// back to the first version.
+func TestTheKeepersQuestionSaysTheWallsProtocol(t *testing.T) {
+	s := fourTiles()
+	if p := askedOf(t, s).Protocol; p != 2 {
+		t.Fatalf("the protocol: %d, want 2", p)
+	}
+	ask(t, s, "POST", "/do/restore", "[1]")
+	if a := askedOf(t, s); a.Protocol != 2 || len(a.Acts) != 1 || a.Acts[0].Do != "restore" {
+		t.Fatalf("with a verb asked: %+v", a)
+	}
+}
+
+// A roll back is a new machine in the place, as an update is: asked at
+// the press (the old picture grey until the new one draws), a new boot
+// after the keeper says it is done takes the place over, and one refused
+// says why and waits no more. It is not a restore: the same machine
+// started again on its snapshot is not a new one (TestARestoreIs...).
+func TestARollBackIsANewMachineInThePlace(t *testing.T) {
+	s := fourTiles()
+	frame(t, s, 2, "a")
+	if c := ask(t, s, "POST", "/do/rollback", "[2]"); c != http.StatusNoContent {
+		t.Fatalf("POST /do/rollback: %d", c)
+	}
+	if d := stateOf(t, s); !d.Tiles[2].Asked || d.Tiles[2].Act != "rollback" {
+		t.Fatalf("a roll back is asked at the press: %+v", d.Tiles[2])
+	}
+	if a := askedOf(t, s); len(a.Acts) != 1 || a.Acts[0].Do != "rollback" || a.Acts[0].Tile != 2 {
+		t.Fatalf("the keeper is asked to roll it back: %+v", a.Acts)
+	}
+	s.tiles[2].asked = time.Now().Add(-2 * time.Second)
+	ask(t, s, "POST", "/acting/2", "")
+	ask(t, s, "POST", "/did/2", "back to scene-agent:7 in 1.3 s")
+	frame(t, s, 2, "b")
+	d := stateOf(t, s)
+	if o := d.Tiles[2]; o.Asked || o.Gen != 2 || o.Took < 2000 || d.Replaced != 1 {
+		t.Fatalf("the first version has the place again: %+v, replaced %d", o, d.Replaced)
+	}
+	ask(t, s, "POST", "/do/rollback", "[2]")
+	ask(t, s, "POST", "/acting/2", "")
+	ask(t, s, "POST", "/did/2", "nothing to roll back to: it runs scene-agent:7", "X-Failed", "1")
+	if o := stateOf(t, s).Tiles[2]; o.Asked || o.Said != "nothing to roll back to: it runs scene-agent:7" {
+		t.Fatalf("a refused roll back says why and waits no more: %+v", o)
+	}
+}
+
 // The look a tile drew in is given as it said it: a word of letters, at
 // most 16; anything else is none, and none said is none.
 func TestATilesLookIsGivenAsItSaidIt(t *testing.T) {
@@ -278,7 +327,7 @@ func TestAFailedRebuildStopsWaiting(t *testing.T) {
 func TestARestoreIsTheSameMachineStartedAgain(t *testing.T) {
 	s := fourTiles()
 	frame(t, s, 0, "a")
-	ask(t, s, "POST", "/do/rollback", "[0]")
+	ask(t, s, "POST", "/do/restore", "[0]")
 	ask(t, s, "POST", "/acting/0", "")
 	ask(t, s, "POST", "/did/0", "back to 10:00:00 in 0.5 s")
 	frame(t, s, 0, "b")
@@ -296,7 +345,7 @@ func TestARestoreIsTheSameMachineStartedAgain(t *testing.T) {
 func TestARestoreThatFailedLeavesTheNextBootANewMachine(t *testing.T) {
 	s := fourTiles()
 	frame(t, s, 0, "a")
-	ask(t, s, "POST", "/do/rollback", "[0]")
+	ask(t, s, "POST", "/do/restore", "[0]")
 	ask(t, s, "POST", "/acting/0", "")
 	ask(t, s, "POST", "/did/0", "no snapshot to restore yet", "X-Failed", "1")
 	frame(t, s, 0, "b")
@@ -308,7 +357,7 @@ func TestARestoreThatFailedLeavesTheNextBootANewMachine(t *testing.T) {
 func TestARestoreDrawingBeforeItIsSaidDoneIsNotLeftOpen(t *testing.T) {
 	s := fourTiles()
 	frame(t, s, 0, "a")
-	ask(t, s, "POST", "/do/rollback", "[0]")
+	ask(t, s, "POST", "/do/restore", "[0]")
 	ask(t, s, "POST", "/acting/0", "")
 	frame(t, s, 0, "b")
 	ask(t, s, "POST", "/did/0", "back to 10:00:00 in 0.5 s")
@@ -765,8 +814,11 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 		"how long its microVM took from its kernel starting to its program running", "<code>05-demoscene-wall.sh --show</code>",
 		"counts the frames it has drawn twice: on its <b>disk</b>", "its <b>volume</b>, a ZFS volume of its own that outlives the machine",
 		"the disk's count starts again from nothing and the volume's goes on", "both counts in its corner go back",
-		"a tile rebuilt or updated has only the snapshots taken since",
-		"blue goes to green, and green back to blue", "This is a rolling update", "A blue/green deployment proper",
+		"a tile rebuilt, updated or rolled back has only the snapshots taken since",
+		"<li><b>Roll back</b>", "It changes the program and keeps the data", "Restore is the other way back",
+		// The snapshot list's buttons restore, by the restore verb.
+		"fetch('/do/restore?at='+encodeURIComponent(r.name)",
+		"the new version of its program, the wall's other image: blue to green", "A tile on the new version already says so", "This is a rolling update", "A blue/green deployment proper",
 		"<li><b>live</b>", "<li><b>frames a second</b>", "<li><b>the clock</b>", "<li><b>replaced</b>", "<li><b>blue</b> and <b>green</b>",
 		"turns red when it holds anything but a whole number from 1 to 1024",
 	} {
@@ -775,13 +827,13 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 		}
 	}
 	// Every button of the tools bar is in the info's list.
-	for _, b := range []string{"snapshot", "rollback", "rebuild", "update", "kill", "clone", "remove"} {
+	for _, b := range []string{"snapshot", "restore", "rebuild", "update", "rollback", "kill", "clone", "remove"} {
 		if !strings.Contains(page, `data-do="`+b+`"`) {
 			t.Errorf("the tools bar has no %s button", b)
 		}
 	}
 	// The table of the counts has a row for every button and the reset.
-	for _, b := range []string{"Snapshot", "Restore", "Rebuild, Update", "Kill", "Clone", "Remove", "Reset the wall"} {
+	for _, b := range []string{"Snapshot", "Restore", "Rebuild, Update, Roll back", "Kill", "Clone", "Remove", "Reset the wall"} {
 		if !strings.Contains(page, "<tr><td>"+b+"</td>") {
 			t.Errorf("the counts' table has no row for %s", b)
 		}
@@ -821,8 +873,8 @@ func TestTheInfosLegendShowsEveryStateOfATile(t *testing.T) {
 		t.Fatal("no doing map in the page's script")
 	}
 	words := regexp.MustCompile(`:'([^']+)'`).FindAllStringSubmatch(page[i:i+j], -1)
-	if len(words) != 7 {
-		t.Fatalf("the doing map has %d words, want one for each of the 7 verbs", len(words))
+	if len(words) != 8 {
+		t.Fatalf("the doing map has %d words, want one for each of the 8 verbs", len(words))
 	}
 	for _, m := range words {
 		if !strings.Contains(legend, m[1]) {
@@ -896,30 +948,30 @@ func TestATilesVolumeCountIsGivenBesideItsDisks(t *testing.T) {
 func TestARestoreGoesBackToTheSnapshotNamed(t *testing.T) {
 	s := fourTiles()
 	frame(t, s, 2, "a")
-	if c := ask(t, s, "POST", "/do/rollback?at=20261118T052303Z", "[2]"); c != http.StatusNoContent {
+	if c := ask(t, s, "POST", "/do/restore?at=20261118T052303Z", "[2]"); c != http.StatusNoContent {
 		t.Fatalf("a restore to a snapshot named: %d", c)
 	}
-	if a := askedOf(t, s); len(a.Acts) != 1 || a.Acts[0].Do != "rollback" || a.Acts[0].At != "20261118T052303Z" {
+	if a := askedOf(t, s); len(a.Acts) != 1 || a.Acts[0].Do != "restore" || a.Acts[0].At != "20261118T052303Z" {
 		t.Fatalf("the keeper is told the snapshot: %+v", a)
 	}
 	// The newest, as before, when none is named; one named again is the
 	// same press, one named otherwise another.
 	s = fourTiles()
-	ask(t, s, "POST", "/do/rollback", "[1]")
-	ask(t, s, "POST", "/do/rollback?at=b", "[1]")
-	ask(t, s, "POST", "/do/rollback?at=b", "[1]")
-	if q := s.tiles[1].queue; len(q) != 2 || q[0] != (press{do: "rollback"}) || q[1] != (press{do: "rollback", at: "b"}) {
+	ask(t, s, "POST", "/do/restore", "[1]")
+	ask(t, s, "POST", "/do/restore?at=b", "[1]")
+	ask(t, s, "POST", "/do/restore?at=b", "[1]")
+	if q := s.tiles[1].queue; len(q) != 2 || q[0] != (press{do: "restore"}) || q[1] != (press{do: "restore", at: "b"}) {
 		t.Fatalf("the queue: %+v", q)
 	}
 	s = fourTiles()
 	long := strings.Repeat("a", 65)
-	for _, path := range []string{"/do/rollback?at=", "/do/rollback?at=clone-tile-40", "/do/rollback?at=-x", "/do/rollback?at=a%20b",
-		"/do/rollback?at=" + long, "/do/rollback?at=a&at=b", "/do/rollback?at=golden", "/do/rollback?at=%C3%A9", "/do/snapshot?at=a", "/do/clone?at=a"} {
+	for _, path := range []string{"/do/restore?at=", "/do/restore?at=clone-tile-40", "/do/restore?at=-x", "/do/restore?at=a%20b",
+		"/do/restore?at=" + long, "/do/restore?at=a&at=b", "/do/restore?at=golden", "/do/restore?at=%C3%A9", "/do/snapshot?at=a", "/do/clone?at=a", "/do/rollback?at=a", "/do/update?at=a"} {
 		if c := ask(t, s, "POST", path, "[0]"); c != http.StatusBadRequest {
 			t.Errorf("%s: %d, want 400", path, c)
 		}
 	}
-	if c := ask(t, s, "POST", "/do/rollback?at="+long[:64], "[0]"); c != http.StatusNoContent {
+	if c := ask(t, s, "POST", "/do/restore?at="+long[:64], "[0]"); c != http.StatusNoContent {
 		t.Errorf("a name of 64: %d", c)
 	}
 	if q := s.tiles[0].queue; len(q) != 1 {

@@ -12,7 +12,8 @@
 // tile keeps go back); rebuild it (a new microVM from the image in its
 // place on the same volume, or in a place left empty); update it (the
 // same, from the wall's other image: a new version of the tile's program,
-// blue to green and back); kill it (its microVM ended outright, as a crash
+// blue to green); roll it back (the same, back to the first: green to
+// blue); kill it (its microVM ended outright, as a crash
 // would end it, and started again by the keeper); clone it as many times
 // as the number beside the button says (each clone a microVM of its own,
 // named for a place after the picture's own, so the wall grows); or remove
@@ -220,12 +221,25 @@ const (
 	idleHold  = 4 * time.Second
 )
 
+// protocol is what the keeper and the wall say to each other, the wall's
+// side, in every answer to the keeper's question (/asked): a keeper of
+// another one does nothing the wall asks. 2 since 2026-11-18, when a
+// restore's verb became restore and rollback a roll back to the first
+// version: a keeper of 2 taking an older wall's "rollback" would have put
+// a new machine in the place, its snapshots gone with the old one, where
+// the page asked for a restore.
+const protocol = 2
+
 // verbs are the buttons under the wall, as the keeper knows them.
-var verbs = map[string]bool{"snapshot": true, "rollback": true, "rebuild": true, "update": true, "kill": true, "clone": true, "remove": true}
+var verbs = map[string]bool{"snapshot": true, "restore": true, "rebuild": true, "update": true, "rollback": true, "kill": true, "clone": true, "remove": true}
 
 // remakes says whether verb do puts a new machine in the place: a rebuild
-// from the image the tile runs, or an update to the wall's other image.
-func remakes(do string) bool { return do == "rebuild" || do == "update" }
+// from the image the tile runs, an update to the wall's new version, or a
+// roll back to its first. (A restore is the same machine started again on
+// its snapshot; 2026-11-18 its verb was rollback, as vmx's, and the button
+// that goes back a version took the name: the operator, "a rollback would
+// be better suited? like a button".)
+func remakes(do string) bool { return do == "rebuild" || do == "update" || do == "rollback" }
 
 func newWall(cols, rows, w, h int, now time.Time) *wall {
 	// Seen as watched from its start, so the launch's first look at it
@@ -450,7 +464,7 @@ func (s *wall) do(w http.ResponseWriter, r *http.Request) {
 	at := ""
 	if v, given := r.URL.Query()["at"]; given {
 		switch {
-		case what != "rollback":
+		case what != "restore":
 			http.Error(w, "only a restore goes back to a snapshot named", http.StatusBadRequest)
 			return
 		case len(v) != 1 || !restorable(v[0]):
@@ -534,7 +548,7 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 	// Whether somebody watches: the keeper looks for tiles that went, and
 	// says what the host holds, less often while nobody does.
 	watched := time.Since(s.viewed) <= s.viewFor
-	if err := json.NewEncoder(w).Encode(map[string]any{"acts": acts, "reset": reset, "watched": watched, "snaps": snaps}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{"protocol": protocol, "acts": acts, "reset": reset, "watched": watched, "snaps": snaps}); err != nil {
 		log.Printf("asked: %v", err)
 	}
 }
@@ -553,9 +567,9 @@ func (s *wall) acting(w http.ResponseWriter, r *http.Request) {
 	if len(t.queue) > 0 {
 		t.acting, t.actAt = true, now
 		switch t.queue[0].do {
-		case "rollback":
+		case "restore":
 			t.restartBy = now.Add(actFor)
-		case "rebuild", "update":
+		case "rebuild", "update", "rollback":
 			if t.asked.IsZero() {
 				t.asked = now
 			}
@@ -588,9 +602,9 @@ func (s *wall) did(w http.ResponseWriter, r *http.Request) {
 		what := t.queue[0].do
 		t.queue, t.acting = t.queue[1:], false
 		switch {
-		case what == "rollback" && failed:
+		case what == "restore" && failed:
 			t.restartBy = time.Time{}
-		case what == "rollback" && !t.restartBy.IsZero():
+		case what == "restore" && !t.restartBy.IsZero():
 			// Not drawing again yet: it will be, within moments.
 			t.restartBy = now.Add(restartIn)
 		case remakes(what) && failed:
@@ -964,7 +978,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="host"></div>
 <div id="wall"></div>
 <div id="dock">
-<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="rollback">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
+<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
 <div id="snaps"></div>
 <div id="hint"></div>
 </div>
@@ -977,8 +991,8 @@ button:disabled{opacity:.35;cursor:default}
 <div class="lr"><div class="t"><img alt="" data-look="blue"><span>tile-07  140 KiB  23 ms</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>Drawing, in blue:</b> its part of the zoom, drawn by the first version of its program. Along the bottom its name, the disk it holds of its own and how long its last frame took to draw; in the corner the frames it has drawn, as its disk counts them and as its volume counts them.</p></div>
 <div class="lr"><div class="t"><img alt="" data-look="green"><span>tile-07  green  152 KiB  25 ms</span><b>disk 86&#10;volume 3,474</b></div><p><b>In green: the new version.</b> After Update it runs the new version of its program, which draws in green. Its disk is new, so the disk's count started again; the volume's went on. While some tiles are blue and some green, each names its version.</p></div>
 <div class="lr"><div class="t sel"><img alt="" data-look="blue"><span>tile-07  140 KiB  23 ms</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>Chosen</b>, a pink border: the buttons do their verb to it. With every tile chosen the whole wall glows pink, and goes on drawing.</p></div>
-<div class="lr"><div class="t busy"><img alt="" data-look="blue"><span>tile-07  taking a snapshot  +1</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>Busy</b>, in yellow: the keeper is doing a press, or it waits its turn: taking a snapshot, restoring, updating, killing it, cloning 3, removing. <b>+1</b> says one more press waits behind it.</p></div>
-<div class="lr"><div class="t asked busy"><img alt="" data-look="blue"><span>tile-07  a new one is coming</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>A new machine is coming:</b> after Rebuild or Update the old picture stays, grey, until the new microVM draws.</p></div>
+<div class="lr"><div class="t busy"><img alt="" data-look="blue"><span>tile-07  taking a snapshot  +1</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>Busy</b>, in yellow: the keeper is doing a press, or it waits its turn: taking a snapshot, restoring, updating, rolling back, killing it, cloning 3, removing. <b>+1</b> says one more press waits behind it.</p></div>
+<div class="lr"><div class="t asked busy"><img alt="" data-look="blue"><span>tile-07  a new one is coming</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>A new machine is coming:</b> after Rebuild, Update or Roll back the old picture stays, grey, until the new microVM draws.</p></div>
 <div class="lr"><div class="t fresh"><img alt="" data-look="blue"><span>tile-07  new in 2.3 s</span><b>disk 9&#10;volume 3,397</b></div><p><b>New</b>, outlined in mint for four seconds: a new boot has the place, a new machine or the same one started again after it died, and how long the place was without a picture.</p></div>
 <div class="lr"><div class="t said"><img alt="" data-look="blue"><span>tile-07  snapshot at 06:31:12</span><b>disk 1,204&#10;volume 3,388</b></div><p><b>Said</b>, outlined in cyan for eight seconds: what the keeper says became of the last press. A refusal says why: <i>not updated: a clone stands on its disk; remove the clone first</i>.</p></div>
 <div class="lr"><div class="t"><img alt="" data-look="blue"><span>tile-07  up in 0.62 s</span><b>disk 9&#10;volume 3,397</b></div><p><b>Up</b>, for ten seconds after it boots: how long its microVM took from its kernel starting to its program running, as the machine itself counts it.</p></div>
@@ -991,7 +1005,7 @@ button:disabled{opacity:.35;cursor:default}
 <tr><th>Button</th><th>The disk's count</th><th>The volume's count</th></tr>
 <tr><td>Snapshot</td><td colspan="2">both go on; the snapshot keeps them as they were</td></tr>
 <tr><td>Restore</td><td colspan="2">both go back to what the snapshot kept</td></tr>
-<tr><td>Rebuild, Update</td><td>starts again from nothing: a new machine has a new disk</td><td>goes on</td></tr>
+<tr><td>Rebuild, Update, Roll back</td><td>starts again from nothing: a new machine has a new disk</td><td>goes on</td></tr>
 <tr><td>Kill</td><td colspan="2">both go on from the last count written, a second at most before</td></tr>
 <tr><td>Clone</td><td colspan="2">each clone goes on from both, as they were when it was cloned</td></tr>
 <tr><td>Remove</td><td colspan="2">both gone, with the tile and its volume</td></tr>
@@ -1002,8 +1016,8 @@ button:disabled{opacity:.35;cursor:default}
 <li><b>live</b>: the microVMs that sent a frame in the last two seconds, of all the places.</li>
 <li><b>frames a second</b>: the frames the wall took from all of them over the last two seconds, halved: the work they do together.</li>
 <li><b>the clock</b>: how long the wall took to have every place drawing, from its start or from the press of Reset the wall; until then, the seconds since; during a reset, which part of it is under way.</li>
-<li><b>replaced</b>: how many times since then a new boot took over a place: every Rebuild and Update, and every tile the keeper started again after it died. A restore starts the same machine again and is not counted.</li>
-<li><b>blue</b> and <b>green</b>: how many tiles run each version. During an Update the green count climbs eight at a time until no blue is left; Update again brings the blue back the same way.</li>
+<li><b>replaced</b>: how many times since then a new boot took over a place: every Rebuild, Update and Roll back, and every tile the keeper started again after it died. A restore starts the same machine again and is not counted.</li>
+<li><b>blue</b> and <b>green</b>: how many tiles run each version. During an Update the green count climbs eight at a time until no blue is left; Roll back brings the blue back the same way.</li>
 </ul>
 <h2>How the work is shared out</h2>
 <p>The wall hands out the time of the next frame. Each tile knows only its number and where the wall is: it asks for the time, draws its own part of the zoom for that moment, sends the picture back, and goes again, up to eight times a second. The wall keeps every tile's newest picture, and this page shows them side by side. Deeper in the zoom a frame costs more to draw, so the frames a second above are real work, shared by NTILES machines. No tile knows any other: when one goes, the rest carry on, and its place stays dark until it is back.</p>
@@ -1013,9 +1027,10 @@ button:disabled{opacity:.35;cursor:default}
 <p>Click a tile to choose it, or drag across tiles to choose every one you pass; click a chosen tile to let it go. <b>All</b> and <b>None</b> choose every tile or none, and Escape lets them all go. A button does its verb to every tile chosen, at once, and beside the buttons the page says how many are chosen. The table under the two counts says what each button does to them.</p>
 <ul>
 <li><b>Snapshot</b> takes the tile's disk and its volume as they are, at one moment, in one ZFS call.</li>
-<li><b>Restore</b> puts the disk and the volume back to the newest snapshot together: the microVM is stopped, both returned and booted again, and both counts in its corner go back to what they were. With one tile chosen, its snapshots are listed under the buttons, oldest first, with what each holds of its own: a press on one puts the tile back to that one, and the snapshots newer than it go with it. Rebuild and Update give a tile a new machine, and its snapshots go with the old one: a tile rebuilt or updated has only the snapshots taken since.</li>
+<li><b>Restore</b> puts the disk and the volume back to the newest snapshot together: the microVM is stopped, both returned and booted again, and both counts in its corner go back to what they were. With one tile chosen, its snapshots are listed under the buttons, oldest first, with what each holds of its own: a press on one puts the tile back to that one, and the snapshots newer than it go with it. Rebuild, Update and Roll back give a tile a new machine, and its snapshots go with the old one: a tile rebuilt, updated or rolled back has only the snapshots taken since.</li>
 <li><b>Rebuild</b> destroys the microVM and its disk and boots a new one from the image in its place, on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine; its snapshots go with the old one. The tile says how long it was away. A place left empty gets a tile again.</li>
-<li><b>Update</b> moves the tile to the wall's other image, a new version of its program: blue goes to green, and green back to blue. Its microVM and disk are destroyed and a new one booted from that image on the same volume, eight at a time across the wall while the rest keep drawing, so green rolls over the picture a row at a time. The disk's count starts again and the volume's goes on, as a program's data does through an upgrade; its snapshots go with the old machine. Pressed again, each goes back to the image it came from: the roll back is the same button. This is a rolling update, the way most fleets update a program: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced. A blue/green deployment proper would start every green tile beside its blue one first and then switch the picture over at once.</li>
+<li><b>Update</b> moves the tile to the new version of its program, the wall's other image: blue to green. Its microVM and disk are destroyed and a new one booted from that image on the same volume, eight at a time across the wall while the rest keep drawing, so green rolls over the picture a row at a time. The disk's count starts again and the volume's goes on, as a program's data does through an upgrade; its snapshots go with the old machine. A tile on the new version already says so. This is a rolling update, the way most fleets update a program: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced. A blue/green deployment proper would start every green tile beside its blue one first and then switch the picture over at once.</li>
+<li><b>Roll back</b> takes the tile back to the version it ran before, green to blue, the same way: a new machine from the first image on the same volume, eight at a time across the wall. It changes the program and keeps the data: the volume's count goes on, and what the new version wrote stays. Restore is the other way back: it puts the data back to a snapshot and keeps the program. A tile on the first version already says there is nothing to roll back to.</li>
 <li><b>Kill</b> ends the microVM as a crash or a power cut would: its process killed outright, with no shutdown. Nothing asks for it back: the keeper finds the machine stopped, as it would one that died any other way, and starts it again with its disk and its volume as they were, and the tile says how long it was away.</li>
 <li><b>Clone</b> makes as many new microVMs from the tile's disk and volume as they are, at one moment, as the number beside it says, for each tile chosen: each a ZFS clone, its volume one too, so it copies nothing and takes no space until it writes, and each draws a new place below the picture, counting on from the counts it was cloned with. The wall takes MAXTILES places; the host's memory and the addresses its network gives out end most walls sooner, and the tile says which. The box beside the button turns red when it holds anything but a whole number from 1 to MAXTILES.</li>
 <li><b>Remove</b> takes the tile away with its volume and their snapshots, and its place stays empty.</li>
@@ -1048,7 +1063,7 @@ button:disabled{opacity:.35;cursor:default}
 <script>
 const n=COLS*ROWS,$=id=>document.getElementById(id),wall=$('wall'),tiles=[],sel=new Set();
 const verbs=[...document.querySelectorAll('#tools button[data-do]')];
-const doing={snapshot:'taking a snapshot',rollback:'restoring',rebuild:'a new one is coming',update:'updating',kill:'killing it',clone:'cloning',remove:'removing'};
+const doing={snapshot:'taking a snapshot',restore:'restoring',rebuild:'a new one is coming',update:'updating',rollback:'rolling back',kill:'killing it',clone:'cloning',remove:'removing'};
 const count=$('count'),most=MAXTILES;
 // size is bytes in the units ZFS and the host count in.
 const size=b=>{const u=['B','KiB','MiB','GiB','TiB'];let k=0;while(b>=1024&&k<u.length-1){b/=1024;k++;}return(k&&b<10?b.toFixed(1):Math.round(b))+' '+u[k];};
@@ -1085,7 +1100,7 @@ const rows=d.snapshots||[];if(!rows.length){el.textContent=name+': no snapshot y
 const head=document.createElement('span');head.textContent=name+', back to:';
 el.replaceChildren(head,...rows.map((r,k)=>{const b=document.createElement('button'),newer=rows.length-1-k;
 b.textContent=clockOf(r.created)+'  '+size(r.used_bytes);b.title=newer?'the '+newer+' newer '+(newer>1?'snapshots go':'snapshot goes')+' with it':'the newest';
-b.onclick=()=>{fetch('/do/rollback?at='+encodeURIComponent(r.name),{method:'POST',body:JSON.stringify([i])});};return b;}));}
+b.onclick=()=>{fetch('/do/restore?at='+encodeURIComponent(r.name),{method:'POST',body:JSON.stringify([i])});};return b;}));}
 setInterval(snapsTick,1000);
 tools();
 // label is what tile i says along its bottom, and how it is outlined;
