@@ -172,7 +172,8 @@
 #
 # USAGE
 #   ./05-demoscene-wall.sh --from DIR   the wall and COLS x ROWS tiles (8 x 5 = 40), the images from the archives in DIR, then its keeper
-#   ./05-demoscene-wall.sh              the same, the images pulled from AGENT_IMAGE's, NEXT_IMAGE's and WALL_IMAGE's registry
+#   ./05-demoscene-wall.sh              the same, the images from the archives beside this script (scene/images);
+#                                       with AGENT_IMAGE, NEXT_IMAGE and WALL_IMAGE set, pulled from their registry
 #   ./05-demoscene-wall.sh --keep       start the keeper again, for the wall that is there
 #   ./05-demoscene-wall.sh --keep-here  the keeper in this terminal instead, until Ctrl+C
 #   ./05-demoscene-wall.sh --show       the wall's own show, the same take every time, for a recording:
@@ -182,19 +183,22 @@
 #                                       times, Reset; open the page first
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
-# The images are not in a public registry yet (ghcr.io/zettarack, the
-# defaults below, does not serve them): build them with scene/README.md's
-# steps and give their archives with --from DIR, or push them to a registry
-# of your own and name them with AGENT_IMAGE, NEXT_IMAGE and WALL_IMAGE.
-# --from DIR takes scene-agent.tar, scene-agent-green.tar and scene-wall.tar
-# from DIR and checks each against its image's digest below (scene-agent:7,
-# its next version scene-agent:7-green, and scene-wall:14); AGENT_ARCHIVE
-# and AGENT_DIGEST, NEXT_ARCHIVE and NEXT_DIGEST, WALL_ARCHIVE and
-# WALL_DIGEST name other archives. COLS (8),
+# The images come with the script: scene/images holds the archives of
+# the three, scene-agent:7, its next version scene-agent:7-green and
+# scene-wall:14, which it takes with no argument and checks against the
+# digests below, so a clone of the examples, or a host whose installer put
+# them on it, runs the wall with no registry and no network.
+# scene/README.md builds them again from their sources. --from DIR takes
+# scene-agent.tar, scene-agent-green.tar and scene-wall.tar from another
+# DIR, checked the same way; AGENT_ARCHIVE and AGENT_DIGEST, NEXT_ARCHIVE
+# and NEXT_DIGEST, WALL_ARCHIVE and WALL_DIGEST name other archives; and
+# AGENT_IMAGE, NEXT_IMAGE and WALL_IMAGE alone pull the images from a
+# registry of your own. COLS (8),
 # ROWS (5) and PORT (8090, this host's port for the page) change the wall.
 # It prints the page's address: open it in a browser.
 # Examples:
-#   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
+#   ./05-demoscene-wall.sh                     the wall and 40 tiles, from the archives in scene/images
+#   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
 #   AGENT_IMAGE=ghcr.io/you/scene-agent:7 NEXT_IMAGE=ghcr.io/you/scene-agent:7-green WALL_IMAGE=ghcr.io/you/scene-wall:14 ./05-demoscene-wall.sh
@@ -255,6 +259,17 @@ wall_digest=sha256:1aaf0e4284962c5e518996e3dc04f5d349875fff9dc32329cf6b70dc7afac
 next_digest=sha256:cd3c9a6aee8abaaf7a7eba3cb0985cc164f06b0e72146075b7e0f21d748fc7d8
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
+# With no argument and no image named in the environment, the images are
+# the archives beside this script, as --from would take them from there:
+# carried in the examples, so a clone, or a host whose installer put the
+# examples on it, runs the wall with nothing fetched (2026-11-18: the
+# wall ran only from archives a person carried in, its registry
+# unpublished).
+images=$here/scene/images
+if [ $# -eq 0 ] && [ -z "${AGENT_IMAGE:-}${NEXT_IMAGE:-}${WALL_IMAGE:-}${AGENT_ARCHIVE:-}${NEXT_ARCHIVE:-}${WALL_ARCHIVE:-}" ] &&
+	[ -f "$images/scene-agent.tar" ] && [ -f "$images/scene-agent-green.tar" ] && [ -f "$images/scene-wall.tar" ]; then
+	set -- --from "$images"
+fi
 # --from DIR: the images from the archives in DIR, under their own names.
 if [ "${1:-}" = --from ]; then
 	[ $# -eq 2 ] && [ -n "$2" ] || die "usage: ${0##*/} --from DIR"

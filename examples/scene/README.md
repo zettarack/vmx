@@ -139,7 +139,25 @@ Forty tiles on a vmx host, measured: 263 MiB as full copies, 12 MiB as
 ZFS keeps them (each tile's own 140 KiB or so, and the image they share,
 once), and 5.6 GiB of memory.
 
-Build both images on any machine with Go and Podman (or Docker):
+## Run it
+
+The three images come with the examples: `images/` holds their
+archives, `scene-agent:7`, `scene-agent:7-green` and `scene-wall:14`, the
+very ones whose digests the script pins. On the vmx host, as root, one
+command, with nothing fetched: the images imported from those archives
+and checked, the wall, its tiles, and the keeper. A wall that is there
+is taken away first. The script prints the page's address: open it in a
+browser.
+
+```sh
+cd /home/examples        # or wherever the examples are: a clone, or where the installer put them
+./05-demoscene-wall.sh
+./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh    # the wall made again
+```
+
+## Build the images yourself
+
+On any machine with Go and Podman (or Docker):
 
 ```sh
 cd scene
@@ -155,19 +173,11 @@ for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
 
-Then on the vmx host, as root, one command: the images from the archives,
-the wall, its tiles, and the keeper. A wall that is there is taken away
-first. The script prints the page's address: open it in a browser.
-
-```sh
-cd /home/examples
-./05-demoscene-wall.sh --from /home
-./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home
-```
-
-`--from` checks each archive against the digest the script names for
-it. Archives you built yourself have digests of their own: name them, as
-printed above.
+Then on the vmx host, the archives you built in place of the ones in
+`images/`: `--from DIR` takes them from DIR and checks each against the
+digest the script names for it. Archives you built yourself have digests
+of their own (the build stamps its time in them): name them, as printed
+above.
 
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:7 \
