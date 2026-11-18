@@ -29,16 +29,16 @@ command that does it; every "no" means vmx has no verb for it.
 | CPUs and memory | `--cpus`, `--memory`; `vmx set` when stopped | `--cpus`, `--memory` | `--cpus`, `--memory` (1 and 256M by default) |
 | More disks, bigger disks | `vmx disk add`, `vmx grow` | no | named volumes: `--volume NAME:/PATH` |
 | More network cards | `vmx nic add NAME NETWORK` | no | no |
-| Snapshots and rollback | `vmx snapshot`, `vmx rollback` | no | no (its volumes are kept apart from it) |
+| Snapshots and rollback | `vmx snapshot`, `vmx rollback` | no | `vmx container snapshot`, `vmx container rollback`: its disk and every volume, at one moment |
 | Scheduled snapshots | `vmx schedule NAME --every 1h --keep 24` | no | no |
 | Backup and restore | `vmx backup NAME --to DATASET`, `vmx restore` | no | no |
-| Clone it | `vmx clone NAME NEW` (not Windows), `--at SNAPSHOT` | from its golden, as often as you like | `vmx container run` again |
+| Clone it | `vmx clone NAME NEW` (not Windows), `--at SNAPSHOT` | from its golden, as often as you like | `vmx container clone NAME NEW`, `--at LABEL` |
 | Become a template | `vmx template save NAME` | no | no |
 | Cut a microVM golden from it | `vmx microvm golden NAME` | no | no |
 | PCI and USB devices | `vmx pci give`, `vmx usb give`; the guest needs the drivers (the server templates' cloud kernels have none for USB) | no | no |
 | Starts with the host | `vmx power NAME on --order N --delay S` | yes, when it was running | yes, when it was running |
 | Runs a job to its end | no | no | yes: its exit status is in its log |
-| Shown in | the desktop, `vmx tui` (VMs), `vmx list` | `vmx tui microvms`, `vmx microvm list` | `vmx container list` |
+| Shown in | the desktop, `vmx tui` (VMs), `vmx list` | the desktop, `vmx tui microvms`, `vmx microvm list` | the desktop, `vmx tui microvms`, `vmx container list` |
 
 ## The kinds of machine
 
