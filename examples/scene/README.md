@@ -20,9 +20,10 @@ runs as containers on a vmx host:
   on, which it checks is a mount), on that volume too; the page shows both
   in the tile's corner. The disk is the machine's and is made again from
   the image with it; the volume outlives it. It draws in the colours
-  `LOOK` names: none, the classic rainbow; `ember`, black through red and
-  orange to white, which the second image sets (`Containerfile.ember`), a
-  new version for the wall's Update to roll out. A tile
+  `LOOK` names: `blue` (also when it is not set), black through deep blue
+  and sky to white; `green`, the same through green, which the second image
+  sets (`Containerfile.green`), a new version for the wall's Update to roll
+  out, blue to green and back; `classic`, a cycling rainbow. A tile
   whose microVM is named `tile-N` draws place N, whatever `TILE` says, so a
   clone named for a new place draws that place. It draws only while
   somebody watches: with no page asking the wall how it is for three
@@ -30,6 +31,34 @@ runs as containers on a vmx host:
   for a frame up to four seconds and answers 204, nothing to draw, so the
   tiles take next to no processor; the moment a page asks, every waiting
   tile is let go and the picture moves again within a frame.
+
+## What a tile shows
+
+The page's **info** button (or the page's address ending `#info`) opens a
+legend of every state a tile can be in, drawn with the page's own tiles.
+In short:
+
+| On a tile | What it says |
+|---|---|
+| `disk 1,204` / `volume 3,388`, in the corner | the frames it has drawn, as its disk counts them (new with each machine) and as its volume counts them (outlives the machine) |
+| blue or green | the version of its program it runs: blue the first, green the new one Update rolls out; while the wall runs both, each tile names its own, and the line above the wall counts each |
+| `tile-07  140 KiB  23 ms` along the bottom | its name, the disk it holds of its own, how long its last frame took |
+| a pink border | chosen: the buttons act on it |
+| yellow | a press being done, or waiting its turn (`+1`: one more behind it); a grey picture until a new machine draws |
+| mint, `new in 2.3 s` | for four seconds: a new boot has the place, and how long it was without a picture |
+| cyan | for eight seconds: what the keeper said became of the last press, a refusal with why |
+| `up in 0.62 s` | for ten seconds: its kernel starting to its program running |
+| dim, its name in red | no frame for two seconds: killed, stopped or removed |
+
+| Button | The disk's count | The volume's count |
+|---|---|---|
+| Snapshot | goes on; the snapshot keeps it | goes on; the snapshot keeps it |
+| Restore | back to the snapshot's | back to the snapshot's |
+| Rebuild, Update | starts again from nothing | goes on |
+| Kill | goes on from the last second written | the same |
+| Clone | each clone goes on from the tile's | the same, on the clone's copy |
+| Remove | gone | gone |
+| Reset the wall | starts again from nothing | starts again, on a new volume |
 
 ## Choose tiles, then a button
 
@@ -43,7 +72,7 @@ wall do their verb to every tile chosen, at once:
 | **Snapshot** | its disk and its volume as they are now, at one moment, in one zfs call (`vmx container snapshot`) |
 | **Restore** | its disk and its volume put back to its newest snapshot together: the microVM stopped, both returned and booted again, in under a second; both counts in its corner go back to what they were (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so. With one tile chosen, its snapshots are listed under the buttons, oldest first: a press on one restores the tile to that one, and the snapshots newer than it go with it |
 | **Rebuild** | its microVM and its disk destroyed and a new one booted from the image on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine, its snapshots with the old one; the tile says how long it was away. An empty place gets a tile again |
-| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:6-ember` (the same program, drawing in other colours: a new version), on the same volume, eight at a time over the wall while the rest draw, so the new version rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. Pressed again, each goes back to the image it came from: the roll back is the same button |
+| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:7-green` (the same program, drawing in green where the first draws in blue: a new version), on the same volume, eight at a time over the wall while the rest draw, so green rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. Pressed again, each goes back to the image it came from: the roll back is the same button. A rolling update: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced |
 | **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk and its volume as they were; the tile says how long its place was without a picture |
 | **Clone** N | as many new microVMs from its disk and its volume as they are, at one moment, as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, its volume one too (vmx names the copy NEW-VOLUME), so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the counts it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
 | **Remove** | the tile taken away with its volume and their snapshots; its place stays empty. A tile a clone stands on is not removed until the clone is, and a volume a clone's copy stands on stays until the copy goes: the keeper takes it away then |
@@ -56,9 +85,11 @@ running, as the machine itself counts it (`up in 0.62 s`).
 
 `05-demoscene-wall.sh --show` plays the wall's own show on the wall that
 is there, the same take every time, for a recording: Reset the wall,
-Snapshot every tile, Kill eight, Restore every tile, Clone one twelve
-times, Reset again. It presses the buttons as the page does, waits each
-step out until the keeper has done it, and pauses the same between them;
+Snapshot every tile, Kill eight, Restore every tile, Rebuild eight,
+Update every tile and Update again (green over the wall and back), Clone
+one twelve times, Reset again. It presses the buttons as the page does,
+waits each step out until the keeper has done it (a Kill until the keeper
+has started every tile killed again), and pauses the same between them;
 open the page first. The keeper leaves the host 2 GiB of
 memory: a clone or a new tile past that is refused, on the tile.
 
@@ -66,7 +97,9 @@ The page cannot do any of that by itself, and that is the point: the wall
 is a program in a container, and nothing in a container commands the
 host. A button only leaves a request on the wall: `POST /do/VERB` with
 the chosen tiles' numbers as a JSON list (VERB is `snapshot`, `rollback`,
-`rebuild`, `clone` or `remove`), or `POST /reset`. The keeper is a loop on
+`rebuild`, `update`, `kill`, `clone` or `remove`; a restore to a
+snapshot named adds `?at=LABEL`, a clone its count, `?n=12`), or `POST
+/reset`. The keeper is a loop on
 the host, run as root, which `05-demoscene-wall.sh` starts by itself as
 the service `demoscene-keeper` once the wall is up. It asks the wall what
 waits (`GET /asked`: each tile's next verb, and whether a reset is
@@ -111,14 +144,14 @@ Build both images on any machine with Go and Podman (or Docker):
 cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:6 .
-podman build -f Containerfile.ember -t scene-agent:6-ember .
-podman build -f Containerfile.wall -t scene-wall:12 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:6
-podman save --format oci-archive -o scene-agent-ember.tar scene-agent:6-ember
-podman save --format oci-archive -o scene-wall.tar scene-wall:12
-for f in scene-agent scene-agent-ember scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
-scp scene-agent.tar scene-agent-ember.tar scene-wall.tar root@vmx-host:/home/
+podman build -f Containerfile.agent -t scene-agent:7 .
+podman build -f Containerfile.green -t scene-agent:7-green .
+podman build -f Containerfile.wall -t scene-wall:13 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:7
+podman save --format oci-archive -o scene-agent-green.tar scene-agent:7-green
+podman save --format oci-archive -o scene-wall.tar scene-wall:13
+for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
+scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
 
 Then on the vmx host, as root, one command: the images from the archives,
@@ -136,9 +169,9 @@ it. Archives you built yourself have digests of their own: name them, as
 printed above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:6 \
-NEXT_ARCHIVE=/home/scene-agent-ember.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:6-ember \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:12 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:7 \
+NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:7-green \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:13 \
 ./05-demoscene-wall.sh
 ```
 

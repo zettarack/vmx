@@ -18,9 +18,10 @@
 // new image rolled out) starts its disk's count from nothing and goes on
 // with its volume's. A snapshot takes both at one moment and a rollback
 // returns both; a clone copies both. LOOK names the colours it draws in:
-// none, the classic cycling rainbow; ember, black through red and orange
-// to white, which is what the wall's second image sets (ENV LOOK=ember),
-// a new version of the program rolled out over the tiles. A host
+// blue (also when it is not set), black through deep blue and sky to
+// white; green, the same through green, which is what the wall's second
+// image sets (ENV LOOK=green), a new version of the program rolled out
+// over the tiles; classic, a cycling rainbow. A host
 // named tile-N (the container's name, which vmx gives the microVM) draws
 // place N whatever TILE says: a clone of tile-07 named tile-40 draws a
 // place of its own, below the picture's own rows.
@@ -156,16 +157,22 @@ func wave(p, o float64) uint8 {
 	return uint8(127.5 + 127.5*math.Sin(2*math.Pi*(p+o)))
 }
 
-// looks are the colours a tile can draw in, by LOOK's value.
-var looks = map[string]bool{"classic": true, "ember": true}
+// looks are the colours a tile can draw in, by LOOK's value: blue is the
+// wall's first version and green its second, the two a blue/green rollout
+// is named for; classic is the rainbow the wall drew before them.
+var looks = map[string]bool{"blue": true, "green": true, "classic": true}
 
 // shade is the colour of a point at palette phase p in the tile's look:
-// classic cycles the rainbow; ember goes from black through red and
-// orange to white and back.
+// blue goes from black through deep blue and sky to white and back, green
+// the same through green, and classic cycles the rainbow.
 func shade(look string, p float64) color.RGBA {
-	if look == "ember" {
-		s := 0.5 + 0.5*math.Sin(2*math.Pi*p)
-		return color.RGBA{uint8(255 * math.Sqrt(s)), uint8(255 * s * s), uint8(255 * s * s * s * s), 255}
+	s := 0.5 + 0.5*math.Sin(2*math.Pi*p)
+	lo, mid, hi := uint8(255*s*s*s*s), uint8(255*s*s), uint8(255*math.Sqrt(s))
+	switch look {
+	case "blue":
+		return color.RGBA{lo, mid, hi, 255}
+	case "green":
+		return color.RGBA{mid, hi, lo, 255}
 	}
 	return color.RGBA{wave(p, 0), wave(p, 0.33), wave(p, 0.67), 255}
 }
@@ -273,10 +280,10 @@ func main() {
 	}
 	look := os.Getenv("LOOK")
 	if look == "" {
-		look = "classic"
+		look = "blue"
 	}
 	if !looks[look] {
-		log.Fatalf("scene-agent: LOOK=%s is none of classic and ember", look)
+		log.Fatalf("scene-agent: LOOK=%s is none of blue, green and classic", look)
 	}
 	host, err := os.Hostname()
 	if err != nil {

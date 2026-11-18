@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -251,8 +252,8 @@ func TestAnUpdateIsANewMachineInThePlace(t *testing.T) {
 func TestATilesLookIsGivenAsItSaidIt(t *testing.T) {
 	s := fourTiles()
 	for _, c := range []struct{ look, want string }{
-		{"ember", "ember"}, {"classic", "classic"}, {"", ""}, {"Ember", ""}, {"ember1", ""},
-		{"ember ember", ""}, {"abcdefghijklmnopq", ""}, {"abcdefghijklmnop", "abcdefghijklmnop"}, {"\u00e9", ""},
+		{"blue", "blue"}, {"green", "green"}, {"", ""}, {"Green", ""}, {"green1", ""},
+		{"blue green", ""}, {"abcdefghijklmnopq", ""}, {"abcdefghijklmnop", "abcdefghijklmnop"}, {"\u00e9", ""},
 	} {
 		if code := ask(t, s, "POST", "/tile/0", "\x89PNG\r\n\x1a\nxx", "X-Boot", "a", "X-Host", "tile-0", "X-Look", c.look); code != http.StatusNoContent {
 			t.Fatalf("a frame: %d", code)
@@ -750,7 +751,10 @@ func TestTheKeeperIsToldWhetherSomebodyWatches(t *testing.T) {
 
 // The page's info says what the wall does now: that the tiles draw only
 // while somebody watches, every button the tools bar has (Kill among
-// them), the tile's boot time, and the show.
+// them), the tile's boot time, the show, the two counts and what each
+// button does to them, the numbers above the wall, the two versions'
+// colours and that Update is a rolling update, and that a new machine's
+// snapshots go with the old one.
 func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 	w := httptest.NewRecorder()
 	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
@@ -759,8 +763,12 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 		"<h2>When nobody watches</h2>", "the picture moves within a frame",
 		"<li><b>Snapshot</b>", "<li><b>Restore</b>", "a press on one puts the tile back to that one", "<li><b>Rebuild</b>", "<li><b>Update</b>", "<li><b>Kill</b>", "<li><b>Clone</b>", "<li><b>Remove</b>", "<li><b>Reset the wall</b>",
 		"how long its microVM took from its kernel starting to its program running", "<code>05-demoscene-wall.sh --show</code>",
-		"twice, in its corner: on its <b>disk</b>", "its <b>volume</b>, a ZFS volume of its own that outlives the machine",
+		"counts the frames it has drawn twice: on its <b>disk</b>", "its <b>volume</b>, a ZFS volume of its own that outlives the machine",
 		"the disk's count starts again from nothing and the volume's goes on", "both counts in its corner go back",
+		"a tile rebuilt or updated has only the snapshots taken since",
+		"blue goes to green, and green back to blue", "This is a rolling update", "A blue/green deployment proper",
+		"<li><b>live</b>", "<li><b>frames a second</b>", "<li><b>the clock</b>", "<li><b>replaced</b>", "<li><b>blue</b> and <b>green</b>",
+		"turns red when it holds anything but a whole number from 1 to 1024",
 	} {
 		if !strings.Contains(page, said) {
 			t.Errorf("the info does not say %q", said)
@@ -770,6 +778,62 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 	for _, b := range []string{"snapshot", "rollback", "rebuild", "update", "kill", "clone", "remove"} {
 		if !strings.Contains(page, `data-do="`+b+`"`) {
 			t.Errorf("the tools bar has no %s button", b)
+		}
+	}
+	// The table of the counts has a row for every button and the reset.
+	for _, b := range []string{"Snapshot", "Restore", "Rebuild, Update", "Kill", "Clone", "Remove", "Reset the wall"} {
+		if !strings.Contains(page, "<tr><td>"+b+"</td>") {
+			t.Errorf("the counts' table has no row for %s", b)
+		}
+	}
+}
+
+// The info's legend shows a tile in every state the page can put one in,
+// each with the classes the page gives a real tile (so it looks as one
+// does): drawing in each version's colours, chosen, busy, a new machine
+// coming, new, said, up, not drawing and no picture yet; every word the
+// page says of a verb in hand is in the legend; and every picture in it
+// has its look's swatch.
+func TestTheInfosLegendShowsEveryStateOfATile(t *testing.T) {
+	w := httptest.NewRecorder()
+	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	start, end := strings.Index(page, `<div class="lg">`), strings.Index(page, "<h2>The two counts in the corner</h2>")
+	if start < 0 || end < start {
+		t.Fatalf("no legend in the info: %d, %d", start, end)
+	}
+	legend := page[start:end]
+	for _, c := range []string{
+		`<div class="t"><img alt="" data-look="blue">`, `<div class="t"><img alt="" data-look="green">`,
+		`<div class="t sel">`, `<div class="t busy">`, `<div class="t asked busy">`, `<div class="t fresh">`,
+		`<div class="t said">`, `<div class="t dead">`, `<div class="t none"><img alt=""><span>`,
+		"up in 0.62 s", "new in 2.3 s", "a new one is coming", "+1", "disk 1,204&#10;volume 3,388",
+	} {
+		if !strings.Contains(legend, c) {
+			t.Errorf("the legend has no %s", c)
+		}
+	}
+	// The page's own words for a verb in hand (its doing map) are each in
+	// the legend: a word added there and not here is caught.
+	i := strings.Index(page, "const doing={")
+	j := strings.Index(page[i:], "};")
+	if i < 0 || j < 0 {
+		t.Fatal("no doing map in the page's script")
+	}
+	words := regexp.MustCompile(`:'([^']+)'`).FindAllStringSubmatch(page[i:i+j], -1)
+	if len(words) != 7 {
+		t.Fatalf("the doing map has %d words, want one for each of the 7 verbs", len(words))
+	}
+	for _, m := range words {
+		if !strings.Contains(legend, m[1]) {
+			t.Errorf("the legend does not say %q", m[1])
+		}
+	}
+	// Each look a legend tile draws in has a swatch, and each swatch is
+	// one of the looks the tiles draw in.
+	for _, m := range regexp.MustCompile(`data-look="([a-z]+)"`).FindAllStringSubmatch(legend, -1) {
+		if !strings.Contains(page, m[1]+":['000000'") {
+			t.Errorf("the legend's %s tile has no swatch", m[1])
 		}
 	}
 }

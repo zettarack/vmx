@@ -62,8 +62,9 @@
 #                   press on one restores the tile to that one, and the
 #                   snapshots newer than it go with it, as the tile says
 #   Update          its microVM and its disk destroyed and a new one booted
-#                   from the wall's other image, scene-agent:6-ember (the
-#                   same program in other colours: a new version), on the
+#                   from the wall's other image, scene-agent:7-green (the
+#                   same program drawing in green where the first draws in
+#                   blue: a new version), on the
 #                   same volume, eight at a time over the wall while the
 #                   rest draw, so the new version rolls over the picture a
 #                   row at a time; the disk's count starts again and the
@@ -169,7 +170,8 @@
 #   ./05-demoscene-wall.sh --keep       start the keeper again, for the wall that is there
 #   ./05-demoscene-wall.sh --keep-here  the keeper in this terminal instead, until Ctrl+C
 #   ./05-demoscene-wall.sh --show       the wall's own show, the same take every time, for a recording:
-#                                       Reset, Snapshot every tile, Kill eight, Restore every tile,
+#                                       Reset, Snapshot every tile, Kill eight (waited out until
+#                                       the keeper has them back), Restore every tile,
 #                                       Rebuild eight, Update every tile and back, Clone one twelve
 #                                       times, Reset; open the page first
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
@@ -178,21 +180,21 @@
 # defaults below, does not serve them): build them with scene/README.md's
 # steps and give their archives with --from DIR, or push them to a registry
 # of your own and name them with AGENT_IMAGE, NEXT_IMAGE and WALL_IMAGE.
-# --from DIR takes scene-agent.tar, scene-agent-ember.tar and scene-wall.tar
-# from DIR and checks each against its image's digest below (scene-agent:6,
-# its next version scene-agent:6-ember, and scene-wall:12); AGENT_ARCHIVE
+# --from DIR takes scene-agent.tar, scene-agent-green.tar and scene-wall.tar
+# from DIR and checks each against its image's digest below (scene-agent:7,
+# its next version scene-agent:7-green, and scene-wall:13); AGENT_ARCHIVE
 # and AGENT_DIGEST, NEXT_ARCHIVE and NEXT_DIGEST, WALL_ARCHIVE and
 # WALL_DIGEST name other archives. COLS (8),
 # ROWS (5) and PORT (8090, this host's port for the page) change the wall.
 # It prints the page's address: open it in a browser.
 # Examples:
-#   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar, scene-agent-ember.tar and scene-wall.tar
+#   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:6 NEXT_IMAGE=ghcr.io/you/scene-agent:6-ember WALL_IMAGE=ghcr.io/you/scene-wall:12 ./05-demoscene-wall.sh
-#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:6 \
-#   NEXT_ARCHIVE=/srv/ember.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:6-ember \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:12 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:7 NEXT_IMAGE=ghcr.io/you/scene-agent:7-green WALL_IMAGE=ghcr.io/you/scene-wall:13 ./05-demoscene-wall.sh
+#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:7 \
+#   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:7-green \
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:13 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -231,13 +233,13 @@ imgs=$here/.made/05-demoscene-wall.images
 orphans=$here/.made/05-demoscene-wall.orphans
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
-# The images' digests, the tiles' scene-agent:6 and its second version
-# scene-agent:6-ember, and the wall's scene-wall:12,
+# The images' digests, the tiles' scene-agent:7 and its second version
+# scene-agent:7-green, and the wall's scene-wall:13,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
-agent_digest=sha256:c0e8b53e7d63f35564ba8d544131adda1aa0d583e1b9ce181facb0ead59e6ccc
-wall_digest=sha256:9fbb179e13cf10c688258958bb65ec0314dc175e8e8d5a283baaf3ce4e074003
-next_digest=sha256:757b8811352189f5b74e2e6fcd2de5099557c836f0cd61e2bee61e9b90d0fcad
+agent_digest=sha256:f9bad5aeef569566d2dbbf7305e85a4facf029e644369a68e275b5c766b3d507
+wall_digest=sha256:5b6f1d23ada412f45cb4dc25d5946419cd5744b327b0d638471ddc3b9829cd26
+next_digest=sha256:cd3c9a6aee8abaaf7a7eba3cb0985cc164f06b0e72146075b7e0f21d748fc7d8
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 # --from DIR: the images from the archives in DIR, under their own names.
@@ -245,14 +247,14 @@ if [ "${1:-}" = --from ]; then
 	[ $# -eq 2 ] && [ -n "$2" ] || die "usage: ${0##*/} --from DIR"
 	from=${2%/}
 	shift 2
-	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-ember.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-ember.tar and scene-wall.tar"
-	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:6}
-	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-ember.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:6-ember}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:12}
+	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-green.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
+	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:7}
+	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:7-green}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:13}
 fi
-agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:6}
-next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:6-ember}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:12}
+agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:7}
+next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:7-green}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:13}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -435,6 +437,23 @@ if [ "${1:-}" = --show ]; then
 		done
 		step "  still busy after $1 s: on to the next step"
 	}
+	# gens: how many microVMs each place has had, by its number.
+	gens() { state | jq -c '[.tiles[].gen]'; }
+	# back GENS TILE...: until each tile named has drawn as a new boot since
+	# GENS was read (its place has had one more microVM), 60 s at most: a
+	# killed tile is started again by the keeper, which the show waits out,
+	# so the next step does not start on a tile still down. 2026-11-18: the
+	# Kill step moved on in 5 s, its eight still down for the Restore.
+	back() {
+		local g=$1 list
+		shift
+		list="[$(IFS=,; echo "$*")]"
+		for _ in $(seq 1 300); do
+			state | jq -e --argjson g "$g" --argjson t "$list" '. as $s | all($t[]; $s.tiles[.].gen > $g[.] and $s.tiles[.].age_ms <= 2000)' >/dev/null && return 0
+			sleep 0.2
+		done
+		step "  not every tile killed was back after 60 s: on to the next step"
+	}
 	# reset: the wall made again, waited out until it is whole.
 	reset() {
 		curl -sf -o /dev/null --max-time 2 -X POST "$url/reset" || die "the wall did not take the reset"
@@ -448,7 +467,7 @@ if [ "${1:-}" = --show ]; then
 	step "the show, on $url ($n tiles); Ctrl+C ends it, and the wall stays as it is"
 	step "Reset the wall";                reset; sleep 4
 	step "Snapshot every tile";           press snapshot "${every[@]}"; settle 60; sleep 4
-	step "Kill ${#some[@]} tiles outright";  press kill "${some[@]}"; settle 60; sleep 4
+	step "Kill ${#some[@]} tiles outright";  g=$(gens) || die "the wall did not say how it is"; press kill "${some[@]}"; back "$g" "${some[@]}"; settle 60; sleep 4
 	step "Restore every tile";            press rollback "${every[@]}"; settle 120; sleep 4
 	step "Rebuild ${#some[@]} tiles: a new disk each, the same volume"; press rebuild "${some[@]}"; settle 120; sleep 6
 	step "Update every tile: the new version rolls over the wall"; press update "${every[@]}"; settle 240; sleep 6
@@ -533,6 +552,13 @@ if [ "${1:-}" = --keep-here ]; then
 			# Kept, to be taken away once vmx lets it go (orphan_pass).
 			(flock 8 && { grep -qx -- "$v" "$orphans" 2>/dev/null || echo "$v" >>"$orphans"; }) 8>"$book"
 			return 1
+		fi
+		# Taken away: no longer one left behind, if an earlier round could
+		# not take it. 2026-11-18: a reset's later round took tile-32's
+		# volume, and the record of it stayed, until the next pass said the
+		# new tile-32's volume was the old one "a tile left behind".
+		if [ -s "$orphans" ]; then
+			(flock 8 && { grep -vxF -- "$v" "$orphans" >"$orphans.new" || true; } && mv "$orphans.new" "$orphans") 8>"$book"
 		fi
 		vol_drop "$1"
 	}
@@ -670,7 +696,7 @@ if [ "${1:-}" = --keep-here ]; then
 		snapshot)
 			label=$(date -u +%Y%m%dT%H%M%SZ)
 			try container snapshot "$name" "$label" || { echo "no snapshot: $why"; return 1; }
-			echo "snapshot at $(date +%H:%M:%S)"
+			echo "snapshot at $(clock_of "$label")"
 			;;
 		rollback)
 			# The snapshot named (the page's list of the tile's), else the
