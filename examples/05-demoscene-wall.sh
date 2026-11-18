@@ -56,12 +56,27 @@
 #                   booted again, in under a second: both counts in its
 #                   corner go back (vmx
 #                   container rollback --restart). A snapshot a clone stands
-#                   on is newer than that: refused until the clone is gone
+#                   on is newer than that: refused until the clone is gone.
+#                   With one tile chosen, the page lists its snapshots under
+#                   the buttons (the keeper asks vmx container snapshots): a
+#                   press on one restores the tile to that one, and the
+#                   snapshots newer than it go with it, as the tile says
+#   Update          its microVM and its disk destroyed and a new one booted
+#                   from the wall's other image, scene-agent:6-ember (the
+#                   same program in other colours: a new version), on the
+#                   same volume, eight at a time over the wall while the
+#                   rest draw, so the new version rolls over the picture a
+#                   row at a time; the disk's count starts again and the
+#                   volume's goes on, as data does through an upgrade; its
+#                   snapshots go with the old machine. Pressed again, each goes back to the image it came from:
+#                   the roll back is the same button. A Rebuild, a clone or
+#                   a tile run again keeps the version it has
 #   Rebuild         its microVM and its disk destroyed and a new one booted
 #                   from the image on the same volume, timed: the disk's
 #                   count starts again from nothing and the volume's goes
 #                   on, as a program's data does when the program is put on
-#                   a new machine; an empty place gets a tile again
+#                   a new machine, its snapshots with the old one; an empty
+#                   place gets a tile again
 #   Kill            its microVM ended as a crash would end it: the process
 #                   killed outright (SIGKILL), no shutdown. Nothing asks
 #                   for it back: the keeper finds it stopped and starts it
@@ -150,32 +165,36 @@
 #
 # USAGE
 #   ./05-demoscene-wall.sh --from DIR   the wall and COLS x ROWS tiles (8 x 5 = 40), the images from the archives in DIR, then its keeper
-#   ./05-demoscene-wall.sh              the same, the images pulled from AGENT_IMAGE's and WALL_IMAGE's registry
+#   ./05-demoscene-wall.sh              the same, the images pulled from AGENT_IMAGE's, NEXT_IMAGE's and WALL_IMAGE's registry
 #   ./05-demoscene-wall.sh --keep       start the keeper again, for the wall that is there
 #   ./05-demoscene-wall.sh --keep-here  the keeper in this terminal instead, until Ctrl+C
 #   ./05-demoscene-wall.sh --show       the wall's own show, the same take every time, for a recording:
 #                                       Reset, Snapshot every tile, Kill eight, Restore every tile,
-#                                       Rebuild eight, Clone one twelve times, Reset; open the page first
+#                                       Rebuild eight, Update every tile and back, Clone one twelve
+#                                       times, Reset; open the page first
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
 # The images are not in a public registry yet (ghcr.io/zettarack, the
 # defaults below, does not serve them): build them with scene/README.md's
 # steps and give their archives with --from DIR, or push them to a registry
-# of your own and name them with AGENT_IMAGE and WALL_IMAGE. --from DIR takes
-# scene-agent.tar and scene-wall.tar from DIR and checks each against its
-# image's digest below (scene-agent:5 and scene-wall:10); AGENT_ARCHIVE and
-# AGENT_DIGEST, WALL_ARCHIVE and WALL_DIGEST name other archives. COLS (8),
+# of your own and name them with AGENT_IMAGE, NEXT_IMAGE and WALL_IMAGE.
+# --from DIR takes scene-agent.tar, scene-agent-ember.tar and scene-wall.tar
+# from DIR and checks each against its image's digest below (scene-agent:6,
+# its next version scene-agent:6-ember, and scene-wall:12); AGENT_ARCHIVE
+# and AGENT_DIGEST, NEXT_ARCHIVE and NEXT_DIGEST, WALL_ARCHIVE and
+# WALL_DIGEST name other archives. COLS (8),
 # ROWS (5) and PORT (8090, this host's port for the page) change the wall.
 # It prints the page's address: open it in a browser.
 # Examples:
-#   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar and /home/scene-wall.tar
+#   ./05-demoscene-wall.sh --from /home        the wall and 40 tiles, from /home/scene-agent.tar, scene-agent-ember.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:5 WALL_IMAGE=ghcr.io/you/scene-wall:10 ./05-demoscene-wall.sh
-#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:5 \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:10 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:6 NEXT_IMAGE=ghcr.io/you/scene-agent:6-ember WALL_IMAGE=ghcr.io/you/scene-wall:12 ./05-demoscene-wall.sh
+#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:6 \
+#   NEXT_ARCHIVE=/srv/ember.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:6-ember \
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:12 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
-#   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles and clones removed
+#   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
 set -euo pipefail
 
@@ -202,17 +221,23 @@ failed=$here/.made/05-demoscene-wall.failed
 # the least vmx makes, is room enough.
 vols=$here/.made/05-demoscene-wall.volumes
 vol_size=16M
+# The image each tile runs that is not the tiles' first, a line NAME IMAGE:
+# an Update moves a tile to the wall's other image, a new version of its
+# program, and a Rebuild, a clone or a run again keeps the version it has.
+imgs=$here/.made/05-demoscene-wall.images
 # The volumes tiles left behind, one a line: vmx keeps a volume while a
 # clone's copy of it stands (a clone rebuilt is on a new disk and still on
 # its copy), and the keeper takes it away once the copy has gone.
 orphans=$here/.made/05-demoscene-wall.orphans
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
-# The images' digests, the tiles' scene-agent:5 and the wall's scene-wall:10,
+# The images' digests, the tiles' scene-agent:6 and its second version
+# scene-agent:6-ember, and the wall's scene-wall:12,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
-agent_digest=sha256:f4e389fb6a7aa2a90cc110e7e8402e86f246bb2879b6c66641cafadb4497cd86
-wall_digest=sha256:0234d1fa0acf7e8aa4af8c076e13078167aa6a96de2914359ebc514682a43d70
+agent_digest=sha256:c0e8b53e7d63f35564ba8d544131adda1aa0d583e1b9ce181facb0ead59e6ccc
+wall_digest=sha256:9fbb179e13cf10c688258958bb65ec0314dc175e8e8d5a283baaf3ce4e074003
+next_digest=sha256:757b8811352189f5b74e2e6fcd2de5099557c836f0cd61e2bee61e9b90d0fcad
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 # --from DIR: the images from the archives in DIR, under their own names.
@@ -220,12 +245,14 @@ if [ "${1:-}" = --from ]; then
 	[ $# -eq 2 ] && [ -n "$2" ] || die "usage: ${0##*/} --from DIR"
 	from=${2%/}
 	shift 2
-	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar and scene-wall.tar"
-	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:5}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:10}
+	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-ember.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-ember.tar and scene-wall.tar"
+	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:6}
+	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-ember.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:6-ember}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:12}
 fi
-agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:5}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:10}
+agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:6}
+next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:6-ember}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:12}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -261,6 +288,7 @@ if [ "${1:-}" = --remove ]; then
 	fi
 	# The images the wall was made from, as its record names them.
 	agent=$(fact agent || true)
+	next=$(fact next || true)
 	wall=$(fact wall || true)
 	# The records next, under the list's lock: a keeper in a terminal
 	# (--keep-here) writes nothing more to them and stops at its next pass,
@@ -335,10 +363,14 @@ if [ "${1:-}" = --remove ]; then
 	mapfile -t vleft < <({ for n in "${all[@]}"; do vol_of "$n"; done; cat "$orphans" 2>/dev/null || true; } | sort -u | grep -Fxf <(printf '%s\n' "$volumes") || true)
 	echo "removed the wall and its tiles: $((there - ${#cleft[@]})) containers, $((vthere - ${#vleft[@]})) volumes"
 	[ ${#cleft[@]} -eq 0 ] || echo "not removed: ${cleft[*]} (vmx container remove NAME says why)"
-	[ ${#vleft[@]} -eq 0 ] || echo "volumes not removed: ${vleft[*]} (vmx container volume-remove NAME says why)"
-	rm -rf "$busy" "$book" "$failed" "$vols" "$orphans"
+	# Those kept for the wall made next, which takes them away first.
+	rm -rf "$busy" "$book" "$failed" "$vols" "$orphans" "$imgs"
+	if [ ${#vleft[@]} -gt 0 ]; then
+		printf '%s\n' "${vleft[@]}" >"$orphans"
+		echo "volumes not removed: ${vleft[*]} (vmx container volume-remove NAME says why); the wall made next takes them away first"
+	fi
 	if [ -n "$agent" ] && [ -n "$wall" ]; then
-		echo "The images stay: vmx container image-remove $agent (and $wall) take them away."
+		echo "The images stay: vmx container image-remove takes each away: $agent${next:+, $next}, $wall."
 	else
 		echo "The images stay: vmx container list --json names them, and vmx container image-remove takes one away."
 	fi
@@ -419,6 +451,8 @@ if [ "${1:-}" = --show ]; then
 	step "Kill ${#some[@]} tiles outright";  press kill "${some[@]}"; settle 60; sleep 4
 	step "Restore every tile";            press rollback "${every[@]}"; settle 120; sleep 4
 	step "Rebuild ${#some[@]} tiles: a new disk each, the same volume"; press rebuild "${some[@]}"; settle 120; sleep 6
+	step "Update every tile: the new version rolls over the wall"; press update "${every[@]}"; settle 240; sleep 6
+	step "Update every tile again: the roll back"; press update "${every[@]}"; settle 240; sleep 4
 	step "Clone tile 0, twelve times";    press clone 12 0; settle 180; sleep 6
 	step "Reset the wall";                reset
 	step "the show is over"
@@ -433,6 +467,9 @@ if [ "${1:-}" = --keep-here ]; then
 		die "the keeper runs already as the service $keeper_unit (journalctl -fu $keeper_unit): systemctl stop $keeper_unit first to keep the wall here"
 	fi
 	agent=$(fact agent)
+	# The tiles' second image, the one an Update moves them to; a wall made
+	# before there was one has none, and its Update says so.
+	next=$(fact next || true)
 	at=$(fact at)
 	n=$(fact tiles)
 	[[ $n =~ ^[0-9]+$ ]] && [ -n "$agent" ] && [ -n "$at" ] || die "$kept does not say the tiles' image, the wall's address and how many tiles"
@@ -452,6 +489,15 @@ if [ "${1:-}" = --keep-here ]; then
 	# the list's lock, and only while the wall's record is there.
 	vol_set() { (flock 8 && if [ -f "$made" ]; then { grep -v "^$1 " "$vols" 2>/dev/null || true; echo "$1 $2"; } >"$vols.new" && mv "$vols.new" "$vols"; fi) 8>"$book"; }
 	vol_drop() { (flock 8 && if [ -f "$vols" ]; then sed -i "/^$1 /d" "$vols"; fi) 8>"$book"; }
+	# img_of NAME: the image tile NAME runs, the tiles' first when none is
+	# recorded; img_set NAME IMAGE records it (none for the first), under
+	# the list's lock and while the wall's record is there.
+	img_of() { local i=; if [ -f "$imgs" ]; then i=$(awk -v n="$1" '$1 == n { print $2; exit }' "$imgs"); fi; echo "${i:-$agent}"; }
+	img_set() {
+		(flock 8 && if [ -f "$made" ]; then
+			{ grep -v "^$1 " "$imgs" 2>/dev/null || true; [ "$2" = "$agent" ] || echo "$1 $2"; } >"$imgs.new" && mv "$imgs.new" "$imgs"
+		fi) 8>"$book"
+	}
 	# room: the host keeps 2 GiB of memory; no new microVM is run past it.
 	room() { awk '$1 == "MemAvailable:" { ok = $2 >= 2 * 1024 * 1024 } END { exit !ok }' /proc/meminfo; }
 	# try ARGS...: vmx ARGS, the last line of what it said in $why when it
@@ -473,7 +519,7 @@ if [ "${1:-}" = --keep-here ]; then
 	# it counted on before when it is there (its count goes on), a new one
 	# when it is not.
 	run_tile() {
-		try container run "$agent" "$1" --env "TILE=$((10#${1#tile-}))" --env "WALL=$url" \
+		try container run "$(img_of "$1")" "$1" --env "TILE=$((10#${1#tile-}))" --env "WALL=$url" \
 			--env VOLUME=/data --volume "$(vol_of "$1"):/data" --volume-size "$vol_size" || { echo "   $1: $why" >&2; return 1; }
 	}
 	# vol_remove NAME: the volume tile NAME counted on taken away, once the
@@ -574,10 +620,14 @@ if [ "${1:-}" = --keep-here ]; then
 		fi
 		# Its volume is vmx's copy of its source's, as vmx lists it:
 		# recorded, so that a Rebuild of it, or a run again, keeps it.
-		v=$(vmx container list --json | jq -r --arg n "$new" '.[] | select(.name == $n) | .volumes // ""') || v=
+		line=$(vmx container list --json | jq -r --arg n "$new" '.[] | select(.name == $n) | "\(.image // "")\t\(.volumes // "")"') || line=
+		v=${line#*$'\t'}
 		v=${v%%,*}
 		v=${v%%:*}
 		[ -z "$v" ] || vol_set "$new" "$v"
+		# The version its source runs, which vmx clones with it.
+		local img=${line%%$'\t'*}
+		if [ -n "$next" ] && [ -n "$img" ] && [ "${img##*/}" = "${next##*/}" ]; then img_set "$new" "$next"; else img_set "$new" "$agent"; fi
 		say "$i" "a clone of $src" 0
 		addr=
 		for t in $(seq 1 45); do
@@ -605,9 +655,11 @@ if [ "${1:-}" = --keep-here ]; then
 		echo "$new" >>"$stop.ok"
 		rm -f "$busy/$new"
 	}
-	# act_on NAME I VERB: one of the page's verbs on a tile, done with vmx;
-	# prints what became of it in a few words for the tile (nothing when
-	# the tile shows it itself), and fails when it was not done.
+	# act_on NAME I VERB [N [AT]]: one of the page's verbs on a tile, done
+	# with vmx (N a clone's count, AT the snapshot a restore goes back to, -
+	# for the newest); prints what became of it in a few words for the tile
+	# (nothing when the tile shows it itself), and fails when it was not
+	# done.
 	act_on() {
 		local name=$1 label s out places=() new want stop rc running pid
 		if [ "$3" != rebuild ] && ! listed "$name"; then
@@ -621,9 +673,20 @@ if [ "${1:-}" = --keep-here ]; then
 			echo "snapshot at $(date +%H:%M:%S)"
 			;;
 		rollback)
-			# The newest snapshot a person took, not one a clone was made from.
-			label=$(vmx container snapshots "$name" --json 2>/dev/null | jq -r '[.[].name | select(startswith("clone-") | not)] | last // empty') || label=
-			[ -n "$label" ] || { echo "no snapshot to restore yet"; return 1; }
+			# The snapshot named (the page's list of the tile's), else the
+			# newest a person took, not one a clone was made from; the ones
+			# newer than it go with the restore, and are counted first.
+			out=$(vmx container snapshots "$name" --json 2>/dev/null | jq -c '[.[]?.name | select(startswith("clone-") | not)]') || out=
+			[ -n "$out" ] || { echo "not restored: its snapshots could not be listed"; return 1; }
+			label=${5:--}
+			if [ "$label" = - ]; then
+				label=$(jq -r 'last // empty' <<<"$out")
+				[ -n "$label" ] || { echo "no snapshot to restore yet"; return 1; }
+			elif ! jq -e --arg l "$label" 'index($l) != null' <<<"$out" >/dev/null; then
+				echo "not restored: it has no snapshot @$label"
+				return 1
+			fi
+			want=$(jq -r --arg l "$label" 'length - index($l) - 1' <<<"$out")
 			s=$(date +%s%N)
 			if ! try container rollback "$name" "$label" --restart; then
 				case $why in
@@ -632,7 +695,11 @@ if [ "${1:-}" = --keep-here ]; then
 				esac
 				return 1
 			fi
-			echo "back to $(clock_of "$label") in $(since "$s") s"
+			if [ "$want" -gt 0 ]; then
+				echo "back to $(clock_of "$label") in $(since "$s") s; the $want newer went with it"
+			else
+				echo "back to $(clock_of "$label") in $(since "$s") s"
+			fi
 			;;
 		rebuild)
 			s=$(date +%s%N)
@@ -655,6 +722,31 @@ if [ "${1:-}" = --keep-here ]; then
 				return 1
 			fi
 			echo "   $name: a new one started in $(since "$s") s" >&2
+			;;
+		update)
+			# The tile moved to the wall's other image: the next version from
+			# the first, the first from the next (pressed again, it rolls
+			# back). Its microVM and disk go, a new one is run from that
+			# image on the same volume; the keeper's dispatch lets eight at
+			# a time do it, so it rolls over the wall while the rest draw.
+			[ -n "$next" ] || { echo "not updated: this wall was made without a second image; --remove and make it again"; return 1; }
+			out=$(vmx container list --json | jq -r --arg n "$name" '.[] | select(.name == $n) | .image // empty') || out=
+			[ -n "$out" ] || { echo "nothing to update: it is gone"; return 1; }
+			if [ "${out##*/}" = "${next##*/}" ]; then want=$agent label="back to"; else want=$next label="updated to"; fi
+			s=$(date +%s%N)
+			if ! try container remove "$name"; then
+				case $why in
+				*clone*) echo "not updated: a clone stands on its disk; remove the clone first" ;;
+				*) echo "not updated: $why" ;;
+				esac
+				return 1
+			fi
+			img_set "$name" "$want"
+			if ! run_tile "$name"; then
+				echo "not ${label% *}: the new one did not start; the keeper tries again"
+				return 1
+			fi
+			echo "$label ${want##*/} in $(since "$s") s"
 			;;
 		kill)
 			# The machine ended as a crash or a power cut would end it: its
@@ -732,6 +824,7 @@ if [ "${1:-}" = --keep-here ]; then
 				esac
 				return 1
 			fi
+			img_set "$name" "$agent"
 			if ! vol_remove "$name"; then
 				echo "removed, but its volume stays: $why"
 				return 1
@@ -792,16 +885,18 @@ if [ "${1:-}" = --keep-here ]; then
 				print "}}"
 			}' | curl -s -o /dev/null --max-time 2 -X POST --data-binary @- "$url/host" || true
 	}
-	# job I NAME VERB [N]: the verb done in the background (a clone N
-	# times), the tile marked busy while it runs, and what became of it
+	# job I NAME VERB [N [AT]]: the verb done in the background (a clone N
+	# times, a restore to snapshot AT), the tile marked busy while it runs,
+	# and what became of it
 	# said to the wall and the log.
 	job() {
 		: >"$busy/$2"
+		[ "$3" != update ] || : >"$busy/.update-$2"
 		(
-			if said=$(act_on "$2" "$1" "$3" "${4:-}"); then f=0; else f=1; fi
+			if said=$(act_on "$2" "$1" "$3" "${4:-}" "${5:--}"); then f=0; else f=1; fi
 			say "$1" "$said" "$f"
 			echo "   $2: $3${said:+: $said}"
-			rm -f "$busy/$2"
+			rm -f "$busy/$2" "$busy/.update-$2"
 		) </dev/null &
 	}
 	# again NAME HOW: a tile that is gone run again, or one stopped started
@@ -869,6 +964,8 @@ if [ "${1:-}" = --keep-here ]; then
 			[ ${#kept_c[@]} -eq 0 ] || echo "   reset: ${kept_c[*]} not removed: left as they are"
 			[ ${#kept_v[@]} -eq 0 ] || echo "   reset: the volumes of ${kept_v[*]} stay: those tiles run again on them"
 		fi
+		# Every tile runs the first image again.
+		(flock 8 && rm -f "$imgs") 8>"$book"
 		curl -sf -o /dev/null --max-time 2 -X POST "$url/reset/up" || echo "   reset: the wall did not take the end of the teardown"
 		echo "   reset: the wall is down in $(since "$s") s; its $n tiles run again"
 		# Sixteen at a time, as they were taken away; one that does not start
@@ -925,8 +1022,8 @@ if [ "${1:-}" = --keep-here ]; then
 		[ -n "$watched" ] || watched=1
 		# While the wall is made again, nothing else is done.
 		if [ ! -e "$busy/.reset" ]; then
-			acts=$(jq -r '.acts[]? | "\(.tile) \(.do) \(.n // 0)"' <<<"$doc" 2>/dev/null) || acts=
-			while read -r i act cnt; do
+			acts=$(jq -r '.acts[]? | "\(.tile) \(.do) \(.n // 0) \(.at // "-")"' <<<"$doc" 2>/dev/null) || acts=
+			while read -r i act cnt at; do
 				# A place of the wall, by its number.
 				[[ $i =~ ^[0-9]+$ ]] && [ "$i" -lt "$most" ] || continue
 				name=$(tile_name "$i")
@@ -934,9 +1031,28 @@ if [ "${1:-}" = --keep-here ]; then
 				# again at the next pass.
 				[ ! -e "$busy/$name" ] || continue
 				[ "$(jobs -rp | wc -l)" -lt 12 ] || break
+				# An update rolls over the wall eight at a time while the rest
+				# draw: one past that waits for the next pass.
+				if [ "$act" = update ] && [ "$(find "$busy" -maxdepth 1 -name '.update-*' | wc -l)" -ge 8 ]; then continue; fi
 				curl -s -o /dev/null --max-time 2 -X POST "$url/acting/$i" || continue
-				job "$i" "$name" "$act" "$cnt"
+				job "$i" "$name" "$act" "$cnt" "$at"
 			done <<<"$acts"
+			# The snapshots a page asked for, of each tile at most every two
+			# seconds: vmx lists them and the wall is given them as vmx
+			# does, less a clone's own, which no restore goes back to.
+			for i in $(jq -r '.snaps[]?' <<<"$doc" 2>/dev/null); do
+				[[ $i =~ ^[0-9]+$ ]] && [ "$i" -lt "$most" ] || continue
+				name=$(tile_name "$i")
+				listed "$name" || continue
+				stamp=$busy/.snaps-$name
+				if [ -e "$stamp" ] && [ $(($(date +%s) - $(stat -c %Y "$stamp"))) -lt 2 ]; then continue; fi
+				: >"$stamp"
+				(
+					if list=$(vmx container snapshots "$name" --json 2>/dev/null | jq -c '[.[]? | select(.name | startswith("clone-") | not)]'); then
+						curl -s -o /dev/null --max-time 2 -X POST --data-binary "$list" "$url/snaps/$i" || true
+					fi
+				) </dev/null &
+			done
 			# One that is gone or stopped, however it went, and not in hand:
 			# the list read first, then what is in hand, then vmx's list. A job
 			# that ends while vmx's list is read leaves a tile as the list
@@ -983,6 +1099,34 @@ fi
 [[ $cols =~ ^[0-9]+$ && $rows =~ ^[0-9]+$ ]] && [ $((cols * rows)) -ge 1 ] && [ $((cols * rows)) -le 64 ] || die "COLS x ROWS is 1 to 64 tiles"
 [ -f "$made" ] && die "this script made a wall already: ${0##*/} --remove takes it away first"
 mkdir -p "$(dirname "$made")"
+# Before anything is made: the volumes a wall before this one left behind
+# (its --remove could not take them, a vmx whose removal kept a container's
+# snapshots on them, for one) taken away now, those that will not go kept
+# for the next time; then no container or volume of a name the wall will
+# use may be there, which it would run beside or count on. A wall refused
+# here has made nothing (2026-11-18: one refused after the wall's own
+# container was run left half a wall).
+if [ -s "$orphans" ]; then
+	: >"$orphans.new"
+	while read -r v; do
+		[ -n "$v" ] || continue
+		if vmx container volume-remove "$v" >/dev/null 2>&1; then
+			echo "   the volume $v the wall before left behind is taken away"
+		elif vmx container volumes --json | jq -e --arg v "$v" 'any(.[]?; .name == $v)' >/dev/null; then
+			echo "$v" >>"$orphans.new"
+		fi
+	done <"$orphans"
+	mv "$orphans.new" "$orphans"
+	[ -s "$orphans" ] || rm -f "$orphans"
+fi
+present=$(vmx container list --json | jq -r '.[].name')
+volumes=$(vmx container volumes --json | jq -r '.[]?.name')
+! grep -qx scene-wall <<<"$present" || die "a container named scene-wall is there already"
+for i in $(seq 0 $((cols * rows - 1))); do
+	n=$(printf 'tile-%02d' "$i")
+	! grep -qx -- "$n" <<<"$present" || die "a container named $n is there already"
+	! grep -qx -- "$n" <<<"$volumes" || die "a volume named $n is there already: its counts would go on from it (vmx container volumes; vmx container volume-remove $n takes it away)"
+done
 
 # get IMAGE ARCHIVE DIGEST: import the archive when one is given, else pull.
 get() {
@@ -996,6 +1140,7 @@ get() {
 echo "== the images"
 get "$wall" "${WALL_ARCHIVE:-}" "${WALL_DIGEST:-}"
 get "$agent" "${AGENT_ARCHIVE:-}" "${AGENT_DIGEST:-}"
+get "$next" "${NEXT_ARCHIVE:-}" "${NEXT_DIGEST:-}"
 
 echo "== the wall, on this host's port $port"
 echo scene-wall >>"$made"
@@ -1004,20 +1149,14 @@ quiet container run "$wall" scene-wall --port "$port:8090" -- -cols "$cols" -row
 wall_at=$(address scene-wall)
 [ -n "$wall_at" ] || die "the wall has no address"
 echo "   the wall runs at $wall_at; this host's port $port leads to it"
-printf 'agent %s\nwall %s\nat %s\ntiles %s\n' "$agent" "$wall" "$wall_at" "$((cols * rows))" >"$kept"
+printf 'agent %s\nnext %s\nwall %s\nat %s\ntiles %s\n' "$agent" "$next" "$wall" "$wall_at" "$((cols * rows))" >"$kept"
+rm -f "$imgs"
 for _ in $(seq 1 30); do curl -s --max-time 2 "http://$wall_at:8090/frame" >/dev/null && break; sleep 1; done
 curl -s --max-time 2 "http://$wall_at:8090/frame" >/dev/null || die "the wall does not answer at http://$wall_at:8090: vmx container logs scene-wall"
 
 host=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')
 echo "   open http://${host:-THIS-HOST}:$port/ in a browser now: its clock times the wall coming up"
 echo "== $((cols * rows)) tiles, sixteen at a time"
-present=$(vmx container list --json | jq -r '.[].name')
-volumes=$(vmx container volumes --json | jq -r '.[]?.name')
-for i in $(seq 0 $((cols * rows - 1))); do
-	n=$(printf 'tile-%02d' "$i")
-	! grep -qx -- "$n" <<<"$present" || die "a container named $n is there already"
-	! grep -qx -- "$n" <<<"$volumes" || die "a volume named $n is there already: its counts would go on from it (vmx container volumes; vmx container volume-remove $n takes it away)"
-done
 : >"$vols"
 began=$(date +%s%N)
 : >"$failed"

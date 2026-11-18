@@ -60,14 +60,21 @@ type tile struct {
 	gen   int
 	newAt time.Time
 	took  time.Duration
-	// asked is when a rebuild of the place was asked (zero when none
-	// waits). Until restartBy, a new boot is the same machine started
+	// asked is when a rebuild or an update of the place was asked (zero
+	// when none waits). Until restartBy, a new boot is the same machine started
 	// again by a restore, not a new one.
 	asked, restartBy time.Time
 	// frames is the count of frames the tile has drawn, as its disk keeps
 	// it, and vframes as its volume keeps it: -1 when it sent none (a tile
 	// with no volume, or an agent from before volumes).
 	frames, vframes int64
+	// look is the colours its program said it drew in (classic, ember),
+	// "" when it said none.
+	look string
+	// snaps is its snapshots as the keeper last listed them, at snapsAt
+	// (zero when it has not); wanted is when a page last asked for them.
+	snaps           []snapRow
+	snapsAt, wanted time.Time
 	// queue is the buttons' verbs waiting for the keeper, the first the
 	// one it does next; acting whether it took that one, actAt when. said
 	// is what the keeper said became of the last, saidAt when.
@@ -90,6 +97,41 @@ type tile struct {
 type press struct {
 	do string
 	n  int
+	// at is the snapshot a restore goes back to, "" for the newest.
+	at string
+}
+
+// snapRow is one of a tile's snapshots as vmx lists them (vmx container
+// snapshots NAME --json), which the keeper hands on as it is.
+type snapRow struct {
+	Name    string    `json:"name"`
+	Created time.Time `json:"created"`
+	Used    int64     `json:"used_bytes"`
+}
+
+// snapsMax is the most snapshots of one tile the wall keeps a list of,
+// and wantFor how long a page's ask for a tile's list stands.
+const (
+	snapsMax = 256
+	wantFor  = 5 * time.Second
+)
+
+// restorable says whether l is a snapshot a restore may go back to: a name
+// by vmx's rule (a letter or a digit, then letters, digits, . _ and -, at
+// most 64) and none of a clone's own (clone-), which the clone stands on.
+func restorable(l string) bool {
+	if l == "" || len(l) > 64 || l == "golden" || strings.HasPrefix(l, "clone-") {
+		return false
+	}
+	for k, c := range l {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case k > 0 && (c == '.' || c == '_' || c == '-'):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // hostNow is what the keeper last said of the host (POST /host): how many
@@ -174,7 +216,11 @@ const (
 )
 
 // verbs are the buttons under the wall, as the keeper knows them.
-var verbs = map[string]bool{"snapshot": true, "rollback": true, "rebuild": true, "kill": true, "clone": true, "remove": true}
+var verbs = map[string]bool{"snapshot": true, "rollback": true, "rebuild": true, "update": true, "kill": true, "clone": true, "remove": true}
+
+// remakes says whether verb do puts a new machine in the place: a rebuild
+// from the image the tile runs, or an update to the wall's other image.
+func remakes(do string) bool { return do == "rebuild" || do == "update" }
 
 func newWall(cols, rows, w, h int, now time.Time) *wall {
 	// Seen as watched from its start, so the launch's first look at it
@@ -280,6 +326,12 @@ func (s *wall) put(w http.ResponseWriter, r *http.Request) {
 		vframes = -1
 	}
 	host, boot := clip(r.Header.Get("X-Host"), 40), clip(r.Header.Get("X-Boot"), 40)
+	// The look it drew in, a word of at most 16 letters; anything else is
+	// shown as none.
+	look := r.Header.Get("X-Look")
+	if len(look) > 16 || strings.Trim(look, "abcdefghijklmnopqrstuvwxyz") != "" {
+		look = ""
+	}
 	// Ten minutes at most: a number past that, or none, is shown as none.
 	up, err := strconv.ParseInt(r.Header.Get("X-Up-Ms"), 10, 64)
 	if err != nil || up < 0 || up > 600000 {
@@ -320,7 +372,7 @@ func (s *wall) put(w http.ResponseWriter, r *http.Request) {
 		t.up, t.upAt = up, now
 	}
 	t.boot = boot
-	t.png, t.ver, t.at, t.host, t.ms, t.frames, t.vframes = body, t.ver+1, now, host, ms, frames, vframes
+	t.png, t.ver, t.at, t.host, t.ms, t.frames, t.vframes, t.look = body, t.ver+1, now, host, ms, frames, vframes, look
 	s.frames = append(s.frames, now)
 	for len(s.frames) > 0 && now.Sub(s.frames[0]) > liveFor {
 		s.frames = s.frames[1:]
@@ -390,6 +442,18 @@ func (s *wall) do(w http.ResponseWriter, r *http.Request) {
 		}
 		n = k
 	}
+	at := ""
+	if v, given := r.URL.Query()["at"]; given {
+		switch {
+		case what != "rollback":
+			http.Error(w, "only a restore goes back to a snapshot named", http.StatusBadRequest)
+			return
+		case len(v) != 1 || !restorable(v[0]):
+			http.Error(w, "at is one snapshot's name: a letter or a digit, then letters, digits, . _ and -, at most 64, and not a clone's", http.StatusBadRequest)
+			return
+		}
+		at = v[0]
+	}
 	var which []int
 	if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&which); err != nil || len(which) == 0 || len(which) > maxTiles {
 		http.Error(w, "the body is the chosen tiles' numbers: a JSON list of 1 to "+strconv.Itoa(maxTiles), http.StatusBadRequest)
@@ -413,14 +477,14 @@ func (s *wall) do(w http.ResponseWriter, r *http.Request) {
 	for _, i := range which {
 		t := &s.tiles[i]
 		switch q := t.queue; {
-		case len(q) > 0 && q[len(q)-1] == press{what, n}:
+		case len(q) > 0 && q[len(q)-1] == press{what, n, at}:
 		case len(q) >= queueMax:
 			over++
 		default:
-			if len(q) == 0 && what == "rebuild" {
+			if len(q) == 0 && remakes(what) {
 				t.asked = now
 			}
-			t.queue = append(t.queue, press{what, n})
+			t.queue = append(t.queue, press{what, n, at})
 			kept++
 		}
 	}
@@ -436,14 +500,18 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 		Tile int    `json:"tile"`
 		Do   string `json:"do"`
 		N    int    `json:"n,omitempty"`
+		At   string `json:"at,omitempty"`
 	}
 	now := time.Now()
 	s.mu.Lock()
 	s.watched = now
 	s.expire(now)
-	acts := []act{}
+	acts, snaps := []act{}, []int{}
 	for i := range s.tiles {
 		t := &s.tiles[i]
+		if !t.wanted.IsZero() && now.Sub(t.wanted) <= wantFor {
+			snaps = append(snaps, i)
+		}
 		if len(t.queue) == 0 {
 			continue
 		}
@@ -452,7 +520,7 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 			log.Printf("tile %d: %s asked again, %.0f s after the keeper took it and said nothing", i, t.queue[0].do, now.Sub(t.actAt).Seconds())
 		}
 		if !t.acting {
-			acts = append(acts, act{Tile: i, Do: t.queue[0].do, N: t.queue[0].n})
+			acts = append(acts, act{Tile: i, Do: t.queue[0].do, N: t.queue[0].n, At: t.queue[0].at})
 		}
 	}
 	reset := s.phase == "asked"
@@ -461,7 +529,7 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 	// Whether somebody watches: the keeper looks for tiles that went, and
 	// says what the host holds, less often while nobody does.
 	watched := time.Since(s.viewed) <= s.viewFor
-	if err := json.NewEncoder(w).Encode(map[string]any{"acts": acts, "reset": reset, "watched": watched}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{"acts": acts, "reset": reset, "watched": watched, "snaps": snaps}); err != nil {
 		log.Printf("asked: %v", err)
 	}
 }
@@ -482,7 +550,7 @@ func (s *wall) acting(w http.ResponseWriter, r *http.Request) {
 		switch t.queue[0].do {
 		case "rollback":
 			t.restartBy = now.Add(actFor)
-		case "rebuild":
+		case "rebuild", "update":
 			if t.asked.IsZero() {
 				t.asked = now
 			}
@@ -520,10 +588,10 @@ func (s *wall) did(w http.ResponseWriter, r *http.Request) {
 		case what == "rollback" && !t.restartBy.IsZero():
 			// Not drawing again yet: it will be, within moments.
 			t.restartBy = now.Add(restartIn)
-		case what == "rebuild" && failed:
+		case remakes(what) && failed:
 			t.asked = time.Time{}
 		}
-		if len(t.queue) > 0 && t.queue[0].do == "rebuild" && t.asked.IsZero() {
+		if len(t.queue) > 0 && remakes(t.queue[0].do) && t.asked.IsZero() {
 			t.asked = now
 		}
 	}
@@ -609,6 +677,7 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 		// said of the host is shown.
 		Frames int64  `json:"frames"`
 		Vol    *int64 `json:"vol_frames,omitempty"`
+		Look   string `json:"look,omitempty"`
 		Act    string `json:"act,omitempty"`
 		ActN   int    `json:"act_n,omitempty"`
 		More   int    `json:"more,omitempty"`
@@ -629,7 +698,7 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 	fresh := s.host != nil && now.Sub(s.hostAt) <= hostFor
 	for i, t := range s.tiles {
 		o := one{V: t.ver, Host: t.host, Ms: t.ms, Age: now.Sub(t.at).Milliseconds(),
-			Asked: !t.asked.IsZero(), Gen: t.gen, Took: t.took.Milliseconds(), Frames: t.frames}
+			Asked: !t.asked.IsZero(), Gen: t.gen, Took: t.took.Milliseconds(), Frames: t.frames, Look: t.look}
 		if t.ver > 0 && t.vframes >= 0 {
 			v := t.vframes
 			o.Vol = &v
@@ -683,6 +752,65 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 // a place's own bytes by its number, 0 to maxTiles-1. A place the wall
 // does not have (gone since, in a reset) is passed over; a place not named
 // holds nothing of its own. What it says is shown for hostFor.
+// snapsOf is a page asking for a tile's snapshots: the keeper is asked to
+// list them (in /asked, for wantFor), and the list it last gave is
+// answered, oldest first, with its age; listed is false until it has
+// given one.
+func (s *wall) snapsOf(w http.ResponseWriter, r *http.Request) {
+	now := time.Now()
+	s.mu.Lock()
+	t, _, ok := s.place(r, false)
+	if !ok {
+		s.mu.Unlock()
+		http.Error(w, "no such tile", http.StatusNotFound)
+		return
+	}
+	t.wanted = now
+	doc := map[string]any{"listed": !t.snapsAt.IsZero(), "snapshots": append([]snapRow{}, t.snaps...)}
+	if !t.snapsAt.IsZero() {
+		doc["age_ms"] = now.Sub(t.snapsAt).Milliseconds()
+	}
+	s.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(doc); err != nil {
+		log.Printf("snaps: %v", err)
+	}
+}
+
+// snapsSaid is the keeper giving a tile's snapshots, as vmx lists them: at
+// most snapsMax, each a name a restore may go back to, a time it was
+// taken and its bytes, 0 or more. All of it is checked before any is kept.
+func (s *wall) snapsSaid(w http.ResponseWriter, r *http.Request) {
+	var list []snapRow
+	dec := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&list); err != nil {
+		http.Error(w, "the body is the tile's snapshots, as vmx lists them in JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(list) > snapsMax {
+		http.Error(w, "at most "+strconv.Itoa(snapsMax)+" snapshots", http.StatusBadRequest)
+		return
+	}
+	for _, x := range list {
+		if !restorable(x.Name) || x.Created.IsZero() || x.Used < 0 {
+			http.Error(w, "a snapshot is a name a restore may go back to, when it was taken and its bytes, 0 or more: not "+strconv.Quote(x.Name), http.StatusBadRequest)
+			return
+		}
+	}
+	s.mu.Lock()
+	t, _, ok := s.place(r, false)
+	if ok {
+		t.snaps, t.snapsAt = list, time.Now()
+	}
+	s.mu.Unlock()
+	if !ok {
+		http.Error(w, "no such tile", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *wall) hostSays(w http.ResponseWriter, r *http.Request) {
 	var h hostNow
 	dec := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
@@ -743,6 +871,8 @@ func (s *wall) routes() *http.ServeMux {
 	mux.HandleFunc("POST /reset/down", s.down)
 	mux.HandleFunc("POST /reset/up", s.up)
 	mux.HandleFunc("POST /host", s.hostSays)
+	mux.HandleFunc("GET /snaps/{i}", s.snapsOf)
+	mux.HandleFunc("POST /snaps/{i}", s.snapsSaid)
 	return mux
 }
 
@@ -795,6 +925,7 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 #dock{position:sticky;bottom:0;z-index:2;box-sizing:border-box;width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 16px 12px;background:linear-gradient(#05040a00,#05040a 30%)}
 #tools{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:8px}
 #tools i{width:14px}
+#snaps{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:6px;min-height:30px;margin-top:6px;font-size:12px;color:#b8b6d8}
 #chosen{min-width:200px;text-align:right;color:#8d90c4;margin-right:4px}
 #chosen b{color:#ff3cac}
 button{background:#151330;color:#cfd2ff;border:1px solid #3a3870;border-radius:3px;padding:6px 14px;font:inherit;cursor:pointer}
@@ -820,7 +951,8 @@ button:disabled{opacity:.35;cursor:default}
 <div id="host"></div>
 <div id="wall"></div>
 <div id="dock">
-<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="rollback">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
+<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="rollback">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
+<div id="snaps"></div>
 <div id="hint"></div>
 </div>
 <div id="info" hidden>
@@ -834,8 +966,9 @@ button:disabled{opacity:.35;cursor:default}
 <p>Click a tile to choose it, or drag across tiles to choose every one you pass; click a chosen tile to let it go. <b>All</b> and <b>None</b> choose every tile or none, and Escape lets them all go. A button does its verb to every tile chosen, at once. Every tile counts the frames it has drawn twice, in its corner: on its <b>disk</b>, which is the machine's and is made again from the image with it, and on its <b>volume</b>, a ZFS volume of its own that outlives the machine.</p>
 <ul>
 <li><b>Snapshot</b> takes the tile's disk and its volume as they are, at one moment, in one ZFS call.</li>
-<li><b>Restore</b> puts the disk and the volume back to the newest snapshot together: the microVM is stopped, both returned and booted again, and both counts in its corner go back to what they were.</li>
-<li><b>Rebuild</b> destroys the microVM and its disk and boots a new one from the image in its place, on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine. The tile says how long it was away. A place left empty gets a tile again.</li>
+<li><b>Restore</b> puts the disk and the volume back to the newest snapshot together: the microVM is stopped, both returned and booted again, and both counts in its corner go back to what they were. With one tile chosen, its snapshots are listed under the buttons, oldest first, with what each holds of its own: a press on one puts the tile back to that one, and the snapshots newer than it go with it.</li>
+<li><b>Rebuild</b> destroys the microVM and its disk and boots a new one from the image in its place, on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine; its snapshots go with the old one. The tile says how long it was away. A place left empty gets a tile again.</li>
+<li><b>Update</b> moves the tile to the wall's other image, a new version of its program that draws in other colours: its microVM and disk destroyed and a new one booted from that image on the same volume, eight at a time across the wall while the rest keep drawing, so the new version rolls over the picture a row at a time. The disk's count starts again and the volume's goes on, as a program's data does through an upgrade; its snapshots go with the old machine. Pressed again, each goes back to the image it came from: the roll back is the same button. Its label names the colours when they are not the first.</li>
 <li><b>Kill</b> ends the microVM as a crash or a power cut would: its process killed outright, with no shutdown. Nothing asks for it back: the keeper finds the machine stopped, as it would one that died any other way, and starts it again with its disk and its volume as they were, and the tile says how long it was away.</li>
 <li><b>Clone</b> makes as many new microVMs from the tile's disk and volume as they are, at one moment, as the number beside it says, for each tile chosen: each a ZFS clone, its volume one too, so it copies nothing and takes no space until it writes, and each draws a new place below the picture, counting on from the counts it was cloned with. The wall takes MAXTILES places; the host's memory and the addresses its network gives out end most walls sooner, and the tile says which.</li>
 <li><b>Remove</b> takes the tile away with its volume and their snapshots, and its place stays empty.</li>
@@ -868,7 +1001,7 @@ button:disabled{opacity:.35;cursor:default}
 <script>
 const n=COLS*ROWS,$=id=>document.getElementById(id),wall=$('wall'),tiles=[],sel=new Set();
 const verbs=[...document.querySelectorAll('#tools button[data-do]')];
-const doing={snapshot:'taking a snapshot',rollback:'restoring',rebuild:'a new one is coming',kill:'killing it',clone:'cloning',remove:'removing'};
+const doing={snapshot:'taking a snapshot',rollback:'restoring',rebuild:'a new one is coming',update:'updating',kill:'killing it',clone:'cloning',remove:'removing'};
 const count=$('count'),most=MAXTILES;
 // size is bytes in the units ZFS and the host count in.
 const size=b=>{const u=['B','KiB','MiB','GiB','TiB'];let k=0;while(b>=1024&&k<u.length-1){b/=1024;k++;}return(k&&b<10?b.toFixed(1):Math.round(b))+' '+u[k];};
@@ -893,6 +1026,20 @@ fetch(path,{method:'POST',body:JSON.stringify(chosen)});if(what==='remove')chose
 $('all').onclick=()=>{tiles.forEach((o,i)=>choose(i,true));tools();};
 $('none').onclick=()=>{[...sel].forEach(i=>choose(i,false));tools();};
 $('reset').onclick=()=>{fetch('/reset',{method:'POST'});};
+// The one tile chosen: its snapshots, oldest first, as the keeper lists
+// them, each a button that puts the tile back to that one; the newer ones
+// go with it, as a restore's do.
+const clockOf=t=>new Date(t).toLocaleTimeString('en-GB');
+async function snapsTick(){const el=$('snaps');if(sel.size!==1||held){el.replaceChildren();return;}
+const i=[...sel][0],name='tile-'+pad(i);let d;try{d=await(await fetch('/snaps/'+i)).json();}catch(e){return;}
+if(sel.size!==1||[...sel][0]!==i)return;
+if(!d.listed){el.textContent=name+': its snapshots are being listed';return;}
+const rows=d.snapshots||[];if(!rows.length){el.textContent=name+': no snapshot yet';return;}
+const head=document.createElement('span');head.textContent=name+', back to:';
+el.replaceChildren(head,...rows.map((r,k)=>{const b=document.createElement('button'),newer=rows.length-1-k;
+b.textContent=clockOf(r.created)+'  '+size(r.used_bytes);b.title=newer?'the '+newer+' newer '+(newer>1?'snapshots go':'snapshot goes')+' with it':'the newest';
+b.onclick=()=>{fetch('/do/rollback?at='+encodeURIComponent(r.name),{method:'POST',body:JSON.stringify([i])});};return b;}));}
+setInterval(snapsTick,1000);
 tools();
 function label(t,i){const name=t.host||'tile-'+pad(i);
 if(t.act)return[name+'  '+(doing[t.act]||t.act)+(t.act_n?' '+t.act_n:'')+(t.more?'  +'+t.more:''),'busy'];
@@ -900,7 +1047,7 @@ if(t.asked)return[name+'  '+doing.rebuild,'busy'];
 if(t.new_ms>0&&t.new_ms<4000)return[name+'  new in '+(t.took_ms/1000).toFixed(1)+' s','fresh'];
 if(t.said)return[name+'  '+t.said,'said'];
 if(t.up_ms>0&&t.up_age_ms<10000)return[name+'  up in '+(t.up_ms/1000).toFixed(2)+' s',''];
-return[name+(t.own?'  '+size(t.own):'')+(t.ms?'  '+t.ms+' ms':''),''];}
+return[name+(t.look&&t.look!=='classic'?'  '+t.look:'')+(t.own?'  '+size(t.own):'')+(t.ms?'  '+t.ms+' ms':''),''];}
 async function tick(){try{const s=await(await fetch('/state')).json();
 if(s.era!==era){era=s.era;tiles.forEach((o,i)=>{o.v=-1;o.im.removeAttribute('src');choose(i,false);});}
 while(tiles.length<s.tiles.length)add(tiles.length);

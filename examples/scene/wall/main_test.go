@@ -39,6 +39,7 @@ type acts struct {
 		Tile int    `json:"tile"`
 		Do   string `json:"do"`
 		N    int    `json:"n"`
+		At   string `json:"at"`
 	} `json:"acts"`
 	Reset bool `json:"reset"`
 }
@@ -67,6 +68,7 @@ type stateDoc struct {
 		Said   string `json:"said"`
 		Frames int64  `json:"frames"`
 		Vol    *int64 `json:"vol_frames"`
+		Look   string `json:"look"`
 		Own    int64  `json:"own"`
 	} `json:"tiles"`
 	Host *struct {
@@ -213,6 +215,51 @@ func TestARebuildIsTimedFromThePressAndCounted(t *testing.T) {
 	d := stateOf(t, s)
 	if o := d.Tiles[2]; o.Asked || o.Gen != 2 || o.New <= 0 || o.Took < 2000 || d.Replaced != 1 {
 		t.Fatalf("a new microVM has the place: %+v, replaced %d", o, d.Replaced)
+	}
+}
+
+// An update is a new machine in the place, as a rebuild is: waited for from
+// the press, a new boot after it counted as one that took the place over,
+// and a failed one waits no more.
+func TestAnUpdateIsANewMachineInThePlace(t *testing.T) {
+	s := fourTiles()
+	frame(t, s, 3, "a")
+	if c := ask(t, s, "POST", "/do/update", "[3]"); c != http.StatusNoContent {
+		t.Fatalf("POST /do/update: %d", c)
+	}
+	if d := stateOf(t, s); !d.Tiles[3].Asked || d.Tiles[3].Act != "update" {
+		t.Fatalf("an update is asked at the press: %+v", d.Tiles[3])
+	}
+	s.tiles[3].asked = time.Now().Add(-2 * time.Second)
+	ask(t, s, "POST", "/acting/3", "")
+	ask(t, s, "POST", "/did/3", "")
+	frame(t, s, 3, "b")
+	d := stateOf(t, s)
+	if o := d.Tiles[3]; o.Asked || o.Gen != 2 || o.Took < 2000 || d.Replaced != 1 {
+		t.Fatalf("the new version has the place: %+v, replaced %d", o, d.Replaced)
+	}
+	ask(t, s, "POST", "/do/update", "[3]")
+	ask(t, s, "POST", "/acting/3", "")
+	ask(t, s, "POST", "/did/3", "not updated: a clone stands on its disk", "X-Failed", "1")
+	if o := stateOf(t, s).Tiles[3]; o.Asked || o.Said != "not updated: a clone stands on its disk" {
+		t.Fatalf("a failed update says why and waits no more: %+v", o)
+	}
+}
+
+// The look a tile drew in is given as it said it: a word of letters, at
+// most 16; anything else is none, and none said is none.
+func TestATilesLookIsGivenAsItSaidIt(t *testing.T) {
+	s := fourTiles()
+	for _, c := range []struct{ look, want string }{
+		{"ember", "ember"}, {"classic", "classic"}, {"", ""}, {"Ember", ""}, {"ember1", ""},
+		{"ember ember", ""}, {"abcdefghijklmnopq", ""}, {"abcdefghijklmnop", "abcdefghijklmnop"}, {"\u00e9", ""},
+	} {
+		if code := ask(t, s, "POST", "/tile/0", "\x89PNG\r\n\x1a\nxx", "X-Boot", "a", "X-Host", "tile-0", "X-Look", c.look); code != http.StatusNoContent {
+			t.Fatalf("a frame: %d", code)
+		}
+		if got := stateOf(t, s).Tiles[0].Look; got != c.want {
+			t.Errorf("X-Look %q: the state gives %q, want %q", c.look, got, c.want)
+		}
 	}
 }
 
@@ -404,7 +451,7 @@ func TestACloneSaysHowManyAndTheKeeperIsToldIt(t *testing.T) {
 		t.Errorf("the same clone twice waits once: %v", q)
 	}
 	ask(t, s, "POST", "/do/clone?n=5", "[1]")
-	if q := s.tiles[1].queue; len(q) != 2 || q[1] != (press{"clone", 5}) {
+	if q := s.tiles[1].queue; len(q) != 2 || q[1] != (press{do: "clone", n: 5}) {
 		t.Errorf("a clone of another count waits after it: %v", q)
 	}
 	ask(t, s, "POST", "/acting/1", "")
@@ -710,7 +757,7 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 	page := w.Body.String()
 	for _, said := range []string{
 		"<h2>When nobody watches</h2>", "the picture moves within a frame",
-		"<li><b>Snapshot</b>", "<li><b>Restore</b>", "<li><b>Rebuild</b>", "<li><b>Kill</b>", "<li><b>Clone</b>", "<li><b>Remove</b>", "<li><b>Reset the wall</b>",
+		"<li><b>Snapshot</b>", "<li><b>Restore</b>", "a press on one puts the tile back to that one", "<li><b>Rebuild</b>", "<li><b>Update</b>", "<li><b>Kill</b>", "<li><b>Clone</b>", "<li><b>Remove</b>", "<li><b>Reset the wall</b>",
 		"how long its microVM took from its kernel starting to its program running", "<code>05-demoscene-wall.sh --show</code>",
 		"twice, in its corner: on its <b>disk</b>", "its <b>volume</b>, a ZFS volume of its own that outlives the machine",
 		"the disk's count starts again from nothing and the volume's goes on", "both counts in its corner go back",
@@ -720,7 +767,7 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 		}
 	}
 	// Every button of the tools bar is in the info's list.
-	for _, b := range []string{"snapshot", "rollback", "rebuild", "kill", "clone", "remove"} {
+	for _, b := range []string{"snapshot", "rollback", "rebuild", "update", "kill", "clone", "remove"} {
 		if !strings.Contains(page, `data-do="`+b+`"`) {
 			t.Errorf("the tools bar has no %s button", b)
 		}
@@ -776,5 +823,114 @@ func TestATilesVolumeCountIsGivenBesideItsDisks(t *testing.T) {
 	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 	if !strings.Contains(w.Body.String(), `t.vol_frames!==undefined?'disk '+t.frames.toLocaleString('en-US')+'\nvolume '+t.vol_frames.toLocaleString('en-US')`) {
 		t.Error("the page does not show the two counts, each named")
+	}
+}
+
+// A restore can go back to a snapshot named (at), which the keeper is told;
+// a name that is none a restore may go back to, more than one, or one
+// given to another verb is refused, and nothing is kept of it.
+func TestARestoreGoesBackToTheSnapshotNamed(t *testing.T) {
+	s := fourTiles()
+	frame(t, s, 2, "a")
+	if c := ask(t, s, "POST", "/do/rollback?at=20261118T052303Z", "[2]"); c != http.StatusNoContent {
+		t.Fatalf("a restore to a snapshot named: %d", c)
+	}
+	if a := askedOf(t, s); len(a.Acts) != 1 || a.Acts[0].Do != "rollback" || a.Acts[0].At != "20261118T052303Z" {
+		t.Fatalf("the keeper is told the snapshot: %+v", a)
+	}
+	// The newest, as before, when none is named; one named again is the
+	// same press, one named otherwise another.
+	s = fourTiles()
+	ask(t, s, "POST", "/do/rollback", "[1]")
+	ask(t, s, "POST", "/do/rollback?at=b", "[1]")
+	ask(t, s, "POST", "/do/rollback?at=b", "[1]")
+	if q := s.tiles[1].queue; len(q) != 2 || q[0] != (press{do: "rollback"}) || q[1] != (press{do: "rollback", at: "b"}) {
+		t.Fatalf("the queue: %+v", q)
+	}
+	s = fourTiles()
+	long := strings.Repeat("a", 65)
+	for _, path := range []string{"/do/rollback?at=", "/do/rollback?at=clone-tile-40", "/do/rollback?at=-x", "/do/rollback?at=a%20b",
+		"/do/rollback?at=" + long, "/do/rollback?at=a&at=b", "/do/rollback?at=golden", "/do/rollback?at=%C3%A9", "/do/snapshot?at=a", "/do/clone?at=a"} {
+		if c := ask(t, s, "POST", path, "[0]"); c != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", path, c)
+		}
+	}
+	if c := ask(t, s, "POST", "/do/rollback?at="+long[:64], "[0]"); c != http.StatusNoContent {
+		t.Errorf("a name of 64: %d", c)
+	}
+	if q := s.tiles[0].queue; len(q) != 1 {
+		t.Errorf("refusals were kept: %+v", q)
+	}
+}
+
+// A tile's snapshots are listed when a page asks: the keeper is asked (in
+// /asked) while the ask stands, and the list it gives is what the page is
+// answered, with its age; what it gives is checked before any is kept.
+func TestATilesSnapshotsAreListedWhenAPageAsks(t *testing.T) {
+	s := fourTiles()
+	get := func(i int) (map[string]any, int) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/snaps/"+itoa(i), nil))
+		var d map[string]any
+		if w.Code == http.StatusOK {
+			if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return d, w.Code
+	}
+	if d, c := get(1); c != http.StatusOK || d["listed"] != false {
+		t.Fatalf("before the keeper has listed them: %d %v", c, d)
+	}
+	if _, c := get(9); c != http.StatusNotFound {
+		t.Errorf("a tile the wall has not: %d", c)
+	}
+	var a struct {
+		Snaps []int `json:"snaps"`
+	}
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/asked", nil))
+	if err := json.Unmarshal(w.Body.Bytes(), &a); err != nil || len(a.Snaps) != 1 || a.Snaps[0] != 1 {
+		t.Fatalf("the keeper is asked for tile 1's: %v %s", err, w.Body.String())
+	}
+	good := `[{"name":"20261118T052303Z","created":"2026-11-18T05:23:03Z","used_bytes":12288},{"name":"before","created":"2026-11-18T05:30:00Z","used_bytes":0}]`
+	if c := ask(t, s, "POST", "/snaps/1", good); c != http.StatusNoContent {
+		t.Fatalf("POST /snaps/1: %d", c)
+	}
+	d, _ := get(1)
+	rows, _ := d["snapshots"].([]any)
+	if d["listed"] != true || len(rows) != 2 || rows[0].(map[string]any)["name"] != "20261118T052303Z" || d["age_ms"] == nil {
+		t.Fatalf("the list as the keeper gave it: %v", d)
+	}
+	// The ask lapses: nothing asked of the keeper after wantFor.
+	s.mu.Lock()
+	s.tiles[1].wanted = time.Now().Add(-wantFor - time.Second)
+	s.mu.Unlock()
+	w = httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/asked", nil))
+	a.Snaps = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &a); err != nil || len(a.Snaps) != 0 {
+		t.Errorf("an ask past wantFor still stands: %v %s", err, w.Body.String())
+	}
+	many := "[" + strings.TrimSuffix(strings.Repeat(`{"name":"a","created":"2026-11-18T05:23:03Z","used_bytes":1},`, snapsMax+1), ",") + "]"
+	for _, body := range []string{"", "{}", "[1]", `[{"name":"a","created":"2026-11-18T05:23:03Z","used_bytes":1,"x":1}]`, many,
+		`[{"name":"clone-tile-40","created":"2026-11-18T05:23:03Z","used_bytes":1}]`, `[{"name":"a b","created":"2026-11-18T05:23:03Z","used_bytes":1}]`,
+		`[{"name":"a","used_bytes":1}]`, `[{"name":"a","created":"2026-11-18T05:23:03Z","used_bytes":-1}]`, `[{"name":"a","created":"yesterday","used_bytes":1}]`} {
+		if c := ask(t, s, "POST", "/snaps/1", body); c != http.StatusBadRequest {
+			t.Errorf("%.60s: %d, want 400", body, c)
+		}
+	}
+	if c := ask(t, s, "POST", "/snaps/9", good); c != http.StatusNotFound {
+		t.Errorf("a tile the wall has not: %d", c)
+	}
+	if d, _ := get(1); len(d["snapshots"].([]any)) != 2 {
+		t.Errorf("a refused list replaced the one kept: %v", d)
+	}
+	if c := ask(t, s, "POST", "/snaps/1", "[]"); c != http.StatusNoContent {
+		t.Errorf("none: %d", c)
+	}
+	if d, _ := get(1); d["listed"] != true || len(d["snapshots"].([]any)) != 0 {
+		t.Errorf("none listed: %v", d)
 	}
 }

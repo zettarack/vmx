@@ -19,7 +19,10 @@ runs as containers on a vmx host:
   every second) and, given a volume (`VOLUME`, the directory vmx mounts it
   on, which it checks is a mount), on that volume too; the page shows both
   in the tile's corner. The disk is the machine's and is made again from
-  the image with it; the volume outlives it. A tile
+  the image with it; the volume outlives it. It draws in the colours
+  `LOOK` names: none, the classic rainbow; `ember`, black through red and
+  orange to white, which the second image sets (`Containerfile.ember`), a
+  new version for the wall's Update to roll out. A tile
   whose microVM is named `tile-N` draws place N, whatever `TILE` says, so a
   clone named for a new place draws that place. It draws only while
   somebody watches: with no page asking the wall how it is for three
@@ -38,8 +41,9 @@ wall do their verb to every tile chosen, at once:
 | Button | What becomes of each tile chosen |
 |---|---|
 | **Snapshot** | its disk and its volume as they are now, at one moment, in one zfs call (`vmx container snapshot`) |
-| **Restore** | its disk and its volume put back to its newest snapshot together: the microVM stopped, both returned and booted again, in under a second; both counts in its corner go back to what they were (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so |
-| **Rebuild** | its microVM and its disk destroyed and a new one booted from the image on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine; the tile says how long it was away. An empty place gets a tile again |
+| **Restore** | its disk and its volume put back to its newest snapshot together: the microVM stopped, both returned and booted again, in under a second; both counts in its corner go back to what they were (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so. With one tile chosen, its snapshots are listed under the buttons, oldest first: a press on one restores the tile to that one, and the snapshots newer than it go with it |
+| **Rebuild** | its microVM and its disk destroyed and a new one booted from the image on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine, its snapshots with the old one; the tile says how long it was away. An empty place gets a tile again |
+| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:6-ember` (the same program, drawing in other colours: a new version), on the same volume, eight at a time over the wall while the rest draw, so the new version rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. Pressed again, each goes back to the image it came from: the roll back is the same button |
 | **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk and its volume as they were; the tile says how long its place was without a picture |
 | **Clone** N | as many new microVMs from its disk and its volume as they are, at one moment, as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, its volume one too (vmx names the copy NEW-VOLUME), so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the counts it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
 | **Remove** | the tile taken away with its volume and their snapshots; its place stays empty. A tile a clone stands on is not removed until the clone is, and a volume a clone's copy stands on stays until the copy goes: the keeper takes it away then |
@@ -107,12 +111,14 @@ Build both images on any machine with Go and Podman (or Docker):
 cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:5 .
-podman build -f Containerfile.wall -t scene-wall:10 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:5
-podman save --format oci-archive -o scene-wall.tar scene-wall:10
-for f in scene-agent scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
-scp scene-agent.tar scene-wall.tar root@vmx-host:/home/
+podman build -f Containerfile.agent -t scene-agent:6 .
+podman build -f Containerfile.ember -t scene-agent:6-ember .
+podman build -f Containerfile.wall -t scene-wall:12 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:6
+podman save --format oci-archive -o scene-agent-ember.tar scene-agent:6-ember
+podman save --format oci-archive -o scene-wall.tar scene-wall:12
+for f in scene-agent scene-agent-ember scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
+scp scene-agent.tar scene-agent-ember.tar scene-wall.tar root@vmx-host:/home/
 ```
 
 Then on the vmx host, as root, one command: the images from the archives,
@@ -130,8 +136,9 @@ it. Archives you built yourself have digests of their own: name them, as
 printed above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:5 \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:10 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:6 \
+NEXT_ARCHIVE=/home/scene-agent-ember.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:6-ember \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:12 \
 ./05-demoscene-wall.sh
 ```
 

@@ -49,7 +49,7 @@ else.
 | `02-microvms.sh [COUNT]` | A row of microVMs from the `debian-13` golden every vmx builds at its first boot. |
 | `03-web-containers.sh [COUNT]` | nginx, COUNT copies, each led to from a port of the host. |
 | `04-golden-web.sh [COUNT]` | Your own golden the whole way: a server set up by `golden-web.yaml`, cut into a microVM golden, COUNT clones each serving its own page. |
-| `05-demoscene-wall.sh [--from DIR]` | Forty containers drawing one animated picture together in your browser (`scene/`), each counting its frames on its disk and on a volume of its own that outlives its machine; its keeper runs as a service, does what the page's buttons ask (snapshot, restore, rebuild, kill, clone, remove) and replaces a tile that goes; the page's info button says how it all works. |
+| `05-demoscene-wall.sh [--from DIR]` | Forty containers drawing one animated picture together in your browser (`scene/`), each counting its frames on its disk and on a volume of its own that outlives its machine; its keeper runs as a service, does what the page's buttons ask (snapshot, restore to any snapshot, rebuild, update to a new version and back, kill, clone, remove) and replaces a tile that goes; the page's info button says how it all works. |
 | `06-one-shot-job.sh ['COMMAND']` | A job run to its end in a microVM made for it, the way a function service runs one, its output and exit status kept. |
 | `07-cron-container.sh` | Scheduled tasks that last: cron in a container, its work on a volume. |
 | `my-image.sh` | The template for your own image: from a registry or an archive, COUNT copies, ports and environment. |

@@ -17,7 +17,10 @@
 // with it, the volume outlives it, so a tile made again (Rebuild, or a
 // new image rolled out) starts its disk's count from nothing and goes on
 // with its volume's. A snapshot takes both at one moment and a rollback
-// returns both; a clone copies both. A host
+// returns both; a clone copies both. LOOK names the colours it draws in:
+// none, the classic cycling rainbow; ember, black through red and orange
+// to white, which is what the wall's second image sets (ENV LOOK=ember),
+// a new version of the program rolled out over the tiles. A host
 // named tile-N (the container's name, which vmx gives the microVM) draws
 // place N whatever TILE says: a clone of tile-07 named tile-40 draws a
 // place of its own, below the picture's own rows.
@@ -153,9 +156,23 @@ func wave(p, o float64) uint8 {
 	return uint8(127.5 + 127.5*math.Sin(2*math.Pi*(p+o)))
 }
 
-// render draws tile's part of the whole wall at time f.T: a zoom into the
-// seahorse valley that starts over every 48 seconds.
-func render(tile int, f frame) *image.RGBA {
+// looks are the colours a tile can draw in, by LOOK's value.
+var looks = map[string]bool{"classic": true, "ember": true}
+
+// shade is the colour of a point at palette phase p in the tile's look:
+// classic cycles the rainbow; ember goes from black through red and
+// orange to white and back.
+func shade(look string, p float64) color.RGBA {
+	if look == "ember" {
+		s := 0.5 + 0.5*math.Sin(2*math.Pi*p)
+		return color.RGBA{uint8(255 * math.Sqrt(s)), uint8(255 * s * s), uint8(255 * s * s * s * s), 255}
+	}
+	return color.RGBA{wave(p, 0), wave(p, 0.33), wave(p, 0.67), 255}
+}
+
+// render draws tile's part of the whole wall at time f.T in its look: a
+// zoom into the seahorse valley that starts over every 48 seconds.
+func render(tile int, f frame, look string) *image.RGBA {
 	col, row := tile%f.Cols, tile/f.Cols
 	ww, wh := float64(f.Cols*f.W), float64(f.Rows*f.H)
 	loop := math.Mod(f.T, 48)
@@ -177,7 +194,7 @@ func render(tile int, f frame) *image.RGBA {
 			}
 			mu := float64(n) + 1 - math.Log2(math.Log2(math.Sqrt(zr*zr+zi*zi)))
 			p := mu*0.035 + f.T*0.2
-			img.SetRGBA(x, y, color.RGBA{wave(p, 0), wave(p, 0.33), wave(p, 0.67), 255})
+			img.SetRGBA(x, y, shade(look, p))
 		}
 	}
 	return img
@@ -205,8 +222,8 @@ func upMs() int64 {
 
 // send hands the wall a frame drawn: the picture, and with it the tile's
 // counts, its disk's and, when it has a volume (vcount 0 and up), its
-// volume's.
-func send(c *http.Client, wall string, tile int, host, boot string, up, ms, count, vcount int64, img *image.RGBA) error {
+// volume's, and the look it was drawn in.
+func send(c *http.Client, wall string, tile int, host, boot, look string, up, ms, count, vcount int64, img *image.RGBA) error {
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		return err
@@ -223,6 +240,7 @@ func send(c *http.Client, wall string, tile int, host, boot string, up, ms, coun
 		req.Header.Set("X-Up-Ms", strconv.FormatInt(up, 10))
 	}
 	req.Header.Set("X-Frames", strconv.FormatInt(count, 10))
+	req.Header.Set("X-Look", look)
 	if vcount >= 0 {
 		req.Header.Set("X-Volume-Frames", strconv.FormatInt(vcount, 10))
 	}
@@ -252,6 +270,13 @@ func main() {
 		if fps, err = strconv.Atoi(v); err != nil || fps < 1 || fps > 60 {
 			log.Fatal("scene-agent: FPS is 1 to 60")
 		}
+	}
+	look := os.Getenv("LOOK")
+	if look == "" {
+		look = "classic"
+	}
+	if !looks[look] {
+		log.Fatalf("scene-agent: LOOK=%s is none of classic and ember", look)
 	}
 	host, err := os.Hostname()
 	if err != nil {
@@ -288,7 +313,7 @@ func main() {
 	if vcount >= 0 {
 		onVol = fmt.Sprintf(", %d on its volume (%s)", vcount, vol)
 	}
-	log.Printf("tile %d (%s, boot %s, the machine up %d ms): drawing for %s, %d frames drawn on this disk before%s", tile, host, boot, up, wall, count, onVol)
+	log.Printf("tile %d (%s, boot %s, the machine up %d ms): drawing for %s in %s, %d frames drawn on this disk before%s", tile, host, boot, up, wall, look, count, onVol)
 	c := &http.Client{Timeout: 5 * time.Second}
 	frames, spent, since := 0, time.Duration(0), time.Now()
 	idle := false
@@ -313,13 +338,13 @@ func main() {
 			continue
 		}
 		t0 := time.Now()
-		img := render(tile, f)
+		img := render(tile, f, look)
 		took := time.Since(t0)
 		next := vcount
 		if next >= 0 {
 			next++
 		}
-		if err := send(c, wall, tile, host, boot, up, took.Milliseconds(), count+1, next, img); err != nil {
+		if err := send(c, wall, tile, host, boot, look, up, took.Milliseconds(), count+1, next, img); err != nil {
 			log.Printf("tile %d: sending the frame: %v; again in a second", tile, err)
 			time.Sleep(time.Second)
 			continue
