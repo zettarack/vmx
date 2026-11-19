@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"scene/show"
 )
 
 // ask sends one request to the wall's routes and gives back its status.
@@ -1057,6 +1060,9 @@ type showDoc struct {
 	In       float64  `json:"in_s"`
 	Held     bool     `json:"held"`
 	Families []string `json:"families"`
+	Len      float64  `json:"len_s"`
+	Extras   []string `json:"extras"`
+	All      []string `json:"all_extras"`
 }
 
 func showOf(t *testing.T, s *wall) showDoc {
@@ -1073,9 +1079,10 @@ func showOf(t *testing.T, s *wall) showDoc {
 }
 
 type frameDoc struct {
-	T    float64 `json:"t"`
-	Show float64 `json:"show"`
-	Cut  int64   `json:"cut_part"`
+	T      float64  `json:"t"`
+	Show   float64  `json:"show"`
+	Cut    int64    `json:"cut_part"`
+	Extras []string `json:"extras"`
 }
 
 func frameOf(t *testing.T, s *wall) frameDoc {
@@ -1104,7 +1111,7 @@ func TestTheShowsControlsMoveItsClockAndTheTilesAreTold(t *testing.T) {
 		t.Fatalf("next: %d", c)
 	}
 	f := frameOf(t, s)
-	if f.Show < 60 || f.Show > 61 || f.Cut != 1 {
+	if one := show.StartOf(1); f.Show < one || f.Show > one+1 || f.Cut != 1 {
 		t.Errorf("after next the tiles draw %v, cut %d; want part 1's start, cut 1", f.Show, f.Cut)
 	}
 	if c := ask(t, s, "POST", "/show/before", ""); c != http.StatusNoContent {
@@ -1115,7 +1122,7 @@ func TestTheShowsControlsMoveItsClockAndTheTilesAreTold(t *testing.T) {
 	}
 	// Later in a part, before plays it again from its start.
 	s.mu.Lock()
-	s.showBase, s.showAt = 3*60+30, time.Now()
+	s.showBase, s.showAt = show.StartOf(3)+30, time.Now()
 	s.mu.Unlock()
 	ask(t, s, "POST", "/show/before", "")
 	if sh := showOf(t, s); sh.Part != 3 || sh.In > 1 {
@@ -1180,12 +1187,17 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		// The buttons fold into cfg under the wall, closed at first.
 		`<div id="panel" hidden>`, `<button id="cfg"`, "<b>cfg</b>", "else if(e.key==='c')cfg(panel.hidden);", "else if(!panel.hidden)cfg(false);",
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
+		// The extras: a button each, for every page open on the wall.
+		`<div id="xtras"></div>`, "fetch('/extra/'+encodeURIComponent(x),{method:'POST'})", "extrasTick(sh);", "<b>extras</b>",
+		// The picture fits the window; clones are rows below it at its size.
+		"h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3", "Clones take rows below the picture at the picture's own size",
+		"seven minutes", "two and a half minutes after every two scenes",
 	} {
 		if !strings.Contains(page, said) {
 			t.Errorf("the page does not have %q", said)
 		}
 	}
-	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "vector", "plasma"} {
+	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "black hole", "plasma"} {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
 		}
@@ -1277,5 +1289,64 @@ func TestThePageIsNeverKept(t *testing.T) {
 	fourTiles().routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 	if got := w.Header().Get("Cache-Control"); got != "no-store" {
 		t.Errorf("Cache-Control: %q, want no-store", got)
+	}
+}
+
+// The extras are the wall's: each name of show.Extras turns its extra on,
+// and again off, for every tile (each frame carries the extras on, in the
+// show's order) and every page (the state says them, and every extra
+// there is); a name that is none of them, or a word the mux cleans first,
+// is refused with nothing changed; and a GET does nothing.
+func TestTheExtrasAreTheWallsAndTheTilesAreTold(t *testing.T) {
+	s := fourTiles()
+	on := func(want ...string) {
+		t.Helper()
+		if want == nil {
+			want = []string{}
+		}
+		if sh := showOf(t, s); !slices.Equal(sh.Extras, want) || !slices.Equal(sh.All, show.Extras) {
+			t.Errorf("the state's extras %q of %q, want %q of %q", sh.Extras, sh.All, want, show.Extras)
+		}
+		if f := frameOf(t, s); !slices.Equal(f.Extras, want) {
+			t.Errorf("the tiles are told %q, want %q", f.Extras, want)
+		}
+	}
+	on()
+	for _, c := range []struct {
+		name string
+		want []string
+	}{
+		{"grain", []string{"grain"}},
+		{"stars", []string{"stars", "grain"}},
+		{"grain", []string{"stars"}},
+		{"vignette", []string{"stars", "vignette"}},
+		{"stars", []string{"vignette"}},
+		{"vignette", nil},
+	} {
+		if code := ask(t, s, "POST", "/extra/"+c.name, ""); code != http.StatusNoContent {
+			t.Fatalf("extra %s: %d", c.name, code)
+		}
+		on(c.want...)
+	}
+	for _, n := range show.Extras {
+		ask(t, s, "POST", "/extra/"+n, "")
+	}
+	on(show.Extras...)
+	for _, bad := range []string{"bloom", "Grain", "grain%20", "grain%2F", "n%C3%A4be", "..%2Fgrain", strings.Repeat("g", 300)} {
+		if c := ask(t, s, "POST", "/extra/"+bad, ""); c != http.StatusNotFound {
+			t.Errorf("extra %q: %d, want 404", bad, c)
+		}
+	}
+	for _, path := range []string{"/extra/", "/extra", "/extra/grain/more"} {
+		if c := ask(t, s, "POST", path, ""); c == http.StatusNoContent {
+			t.Errorf("%s: done", path)
+		}
+	}
+	if c := ask(t, s, "GET", "/extra/grain", ""); c == http.StatusNoContent {
+		t.Error("a GET turned an extra")
+	}
+	on(show.Extras...)
+	if sh := showOf(t, s); sh.Len != show.LenOf(sh.Part) {
+		t.Errorf("the state says part %d is %v s long, the show %v", sh.Part, sh.Len, show.LenOf(sh.Part))
 	}
 }

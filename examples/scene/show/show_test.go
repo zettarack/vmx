@@ -3,10 +3,12 @@ package show
 import (
 	"bytes"
 	"image"
+	"math"
+	"strings"
 	"testing"
 )
 
-// The wordmark opens the show and is every fifteenth part; between, each
+// The intro opens the show and is every third part; between, each
 // round of the rotation plays every family once; no family plays twice
 // running, across rounds too, for the first hours.
 func TestTheScheduleKeepsItsPromises(t *testing.T) {
@@ -14,8 +16,9 @@ func TestTheScheduleKeepsItsPromises(t *testing.T) {
 	round := map[string]int{}
 	for p := int64(0); p < 600; p++ {
 		name := PartName(p)
-		// Fifteen, written here: the promise, not the constant that keeps it.
-		if (p%15 == 0) != (name == "vmx") {
+		// Every third, written here: the promise, not the constant that
+		// keeps it.
+		if (p%3 == 0) != (name == "vmx") {
 			t.Fatalf("part %d plays %s", p, name)
 		}
 		if name == last {
@@ -49,7 +52,7 @@ func TestFamiliesAndNextOf(t *testing.T) {
 	}
 	for p := int64(0); p < 120; p++ {
 		for _, n := range f {
-			q := NextOf(p, n, 20)
+			q := NextOf(p, n, 30)
 			if q <= p || PartName(q) != n {
 				t.Fatalf("after part %d the next %s is part %d (%s)", p, n, q, PartName(q))
 			}
@@ -94,10 +97,14 @@ func litPixels(img *image.RGBA) int {
 // way and at its end, in every look; a clone's place below the picture
 // draws too; and a frame with no shape is a blank picture, not a panic.
 func TestEveryFamilyDraws(t *testing.T) {
-	for p := int64(0); p < 12; p++ {
+	// Fifteen parts: five intros and the whole of the first round; each
+	// early in its part and in its last ten seconds.
+	seen := map[string]bool{}
+	for p := int64(0); p < 15; p++ {
+		seen[PartName(p)] = true
 		for _, look := range []string{"blue", "green", "classic"} {
-			for _, in := range []float64{12, 30, 58} {
-				f := frameAt(float64(p)*PartLen + in)
+			for _, in := range []float64{12, 30, 58, LenOf(p) - 10} {
+				f := frameAt(StartOf(p) + in)
 				drawn := 0
 				for place := 0; place < 12; place++ {
 					if litPixels(new(Show).Render(place, f, look)) > 0 {
@@ -109,7 +116,7 @@ func TestEveryFamilyDraws(t *testing.T) {
 				}
 			}
 		}
-		if img := new(Show).Render(13, frameAt(float64(p)*PartLen+30), "blue"); img.Bounds().Dx() != 24 {
+		if img := new(Show).Render(13, frameAt(StartOf(p)+30), "blue"); img.Bounds().Dx() != 24 {
 			t.Errorf("part %d: a clone's place drew %v", p, img.Bounds())
 		}
 	}
@@ -121,12 +128,15 @@ func TestEveryFamilyDraws(t *testing.T) {
 	if img := new(Show).Render(-1, frameAt(5), "blue"); litPixels(img) != 0 {
 		t.Error("a place below 0 drew")
 	}
+	if len(seen) != len(Families()) {
+		t.Errorf("fifteen parts played %d families of %d", len(seen), len(Families()))
+	}
 }
 
 // When a part ends, the top left tile changes first and the bottom right
 // last; a cut changes every tile at once.
 func TestAChangeCrossesTheWallAndACutDoesNot(t *testing.T) {
-	at := PartLen + 0.3
+	at := StartOf(1) + 0.3
 	first := new(Show).Render(0, frameAt(at), "classic")
 	last := new(Show).Render(11, frameAt(at), "classic")
 	newFirst := new(Show).Render(0, Frame{T: at, Cols: 4, Rows: 3, W: 24, H: 18, CutPart: 1}, "classic")
@@ -136,6 +146,40 @@ func TestAChangeCrossesTheWallAndACutDoesNot(t *testing.T) {
 	}
 	if bytes.Equal(last.Pix, newLast.Pix) {
 		t.Error("the bottom right tile changed part as soon as the top left")
+	}
+	// A tile whose turn has not come draws the part before as it goes on,
+	// by that part's own clock: into an intro from a scene, and into a
+	// scene from an intro, which are not the same length.
+	for _, p := range []int64{1, 3} {
+		f := frameAt(StartOf(p) + 0.3)
+		before := new(Show).draw(image.NewRGBA(image.Rect(0, 0, 24, 18)), 3, 2, f, p-1, LenOf(p-1)+0.3, 0, "classic")
+		if img := new(Show).Render(11, f, "classic"); !bytes.Equal(img.Pix, before.Pix) {
+			t.Errorf("0.3 s into part %d the bottom right tile is not part %d going on", p, p-1)
+		}
+	}
+}
+
+// Each extra lays something over the picture: the whole picture with it
+// is not the picture without it; a name that is no extra lays nothing.
+func TestEachExtraDraws(t *testing.T) {
+	whole := func(f Frame) []byte {
+		var all []byte
+		for place := 0; place < f.Cols*f.Rows; place++ {
+			all = append(all, new(Show).Render(place, f, "classic").Pix...)
+		}
+		return all
+	}
+	f := Frame{T: StartOf(1) + 30, Cols: 4, Rows: 3, W: 80, H: 60}
+	plain := whole(f)
+	for _, x := range Extras {
+		f.Extras = []string{x}
+		if bytes.Equal(whole(f), plain) {
+			t.Errorf("%s drew nothing", x)
+		}
+	}
+	f.Extras = []string{"bloom", "", "Stars"}
+	if !bytes.Equal(whole(f), plain) {
+		t.Error("a name that is no extra drew")
 	}
 }
 
@@ -176,14 +220,119 @@ func TestEveryFactIsInTheFont(t *testing.T) {
 	}
 }
 
-// The wordmark and its tagline have a glyph for every character, and
-// draw: no letter of either is blank.
+// The wordmark, its tagline and the intro's features have a glyph for
+// every character (a space is the gap), so none loses a letter.
 func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {
-	for _, s := range []string{word, tagline} {
+	for _, s := range append([]string{word, tagline}, features...) {
 		for i := 0; i < len(s); i++ {
-			if glyphFor(s[i]) == blank {
+			if s[i] != ' ' && glyphFor(s[i]) == blank {
 				t.Errorf("%q: %q has no glyph", s, s[i])
 			}
 		}
+	}
+}
+
+// The schedule's clock: a scene plays seven minutes and the intro two and
+// a half; every part starts where the one before it ends; and the part at
+// any moment is the one whose span holds it.
+func TestThePartsTakeTheirTimes(t *testing.T) {
+	if LenOf(0) != 150 || LenOf(1) != 420 || LenOf(2) != 420 || LenOf(3) != 150 {
+		t.Fatalf("lengths: %v %v %v %v", LenOf(0), LenOf(1), LenOf(2), LenOf(3))
+	}
+	for p := int64(0); p < 60; p++ {
+		if StartOf(p+1) != StartOf(p)+LenOf(p) {
+			t.Fatalf("part %d starts at %v, part %d at %v, %v long", p+1, StartOf(p+1), p, StartOf(p), LenOf(p))
+		}
+		for _, in := range []float64{0, 0.5, LenOf(p) / 2, LenOf(p) - 0.01} {
+			if q, at := PartAt(StartOf(p) + in); q != p || math.Abs(at-in) > 1e-6 {
+				t.Fatalf("%v into part %d: part %d, %v in", in, p, q, at)
+			}
+		}
+	}
+	if q, at := PartAt(-5); q != 0 || at != 0 {
+		t.Errorf("before the start: part %d at %v", q, at)
+	}
+}
+
+// The black hole's sky has no seams: rays from one eye, each passing a
+// little wider of the hole than the last, leave in ways that turn smoothly
+// one to the next, from the edge of the ring of light round the hole's
+// shadow to far past the disk. Where the following handed over to the rule
+// at a fixed width, or where a ray's count of steps changed, the way out
+// jumped, and the stars behind the hole showed rings of doubled stars
+// (2026-11-18). A jump is a step in how the turn changes from ray to ray;
+// the bending's own curve, steep near the shadow, changes it smoothly. The
+// rays lie in the disk's own plane, so no gas stops them.
+func TestTheBlackHolesSkyHasNoSeams(t *testing.T) {
+	b := newBlackhole(7, &view{}).(*blackhole)
+	b.px = 1 / (1.05 * 600)
+	eye := v3(0, 0, -21)
+	var ang []float64
+	for w := 2.9; w < 20; w += 0.002 {
+		// The ray aimed to pass w wide of the middle, were it not bent.
+		s := w / 21
+		_, _, out, gone := b.follow(eye, v3(s, 0, math.Sqrt(1-s*s)), 0)
+		if !gone {
+			t.Fatalf("a ray %.3f wide fell in", w)
+		}
+		ang = append(ang, math.Atan2(out.x, out.z))
+	}
+	worst, at := 0.0, 0
+	for i := 3; i < len(ang); i++ {
+		third := ang[i] - 3*ang[i-1] + 3*ang[i-2] - ang[i-3]
+		if math.Abs(third) > worst {
+			worst, at = math.Abs(third), i
+		}
+	}
+	// A pixel of the wall is 1/630 of a radian: a step under a twentieth
+	// of one does not show.
+	if worst > 1.0/630/20 {
+		t.Errorf("the way out steps by %.2g rad at %.3f wide", worst, 2.9+0.002*float64(at))
+	}
+}
+
+// The intro's scroller says every feature, in order, the site last, and
+// carries the whole line across the picture while the word holds, slowly
+// enough to read: each letter on the picture six seconds or more. And it
+// draws: the intro with its line has text in it that the intro with no
+// line has not.
+func TestTheIntroScrollsEveryFeatureWhileTheWordHolds(t *testing.T) {
+	v := &view{w: 1280, h: 600, pw: 1280, ph: 600}
+	lg := newLogo(3, v).(*logo)
+	if lg.intro != introLine() {
+		t.Fatalf("the intro scrolls %q", lg.intro)
+	}
+	at := 0
+	for _, f := range features {
+		i := strings.Index(lg.intro[at:], f)
+		if i < 0 {
+			t.Fatalf("the line lacks %q after its character %d", f, at)
+		}
+		at += i + len(f)
+	}
+	if !strings.HasSuffix(lg.intro, "ZETTARACK.COM") {
+		t.Errorf("the line ends %q", lg.intro[max(len(lg.intro)-20, 0):])
+	}
+	adv := float64(6 * lg.is)
+	if gone := 12 + (float64(v.pw)+float64(len(lg.intro))*adv)/lg.ispeed; gone > IntroLen-10 {
+		t.Errorf("the line's end leaves the picture at %.1f s, after the word goes at %v", gone, IntroLen-10)
+	}
+	if on := float64(v.pw) / lg.ispeed; on < 6 {
+		t.Errorf("a letter is on the picture %.1f s: too fast to read", on)
+	}
+	v.px = make([]vec3, v.w*v.h)
+	lg.frame(v, 70)
+	with := append([]vec3(nil), v.px...)
+	lg.intro = ""
+	v.px = make([]vec3, v.w*v.h)
+	lg.frame(v, 70)
+	differ := 0
+	for i := range with {
+		if with[i] != v.px[i] {
+			differ++
+		}
+	}
+	if differ < 2000 {
+		t.Errorf("the line drew %d pixels", differ)
 	}
 }

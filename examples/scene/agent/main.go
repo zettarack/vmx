@@ -45,6 +45,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -124,11 +125,13 @@ func place(host string, tile int) int {
 // shape. Show is the show's own clock, which the page's controls move and
 // hold, and CutPart the part they last moved it to the start of; a wall
 // from before the controls sends neither, and the show then runs on the
-// wall's time.
+// wall's time. Extras are the extras the page has on (show.Extras), each
+// once; absent is none.
 type frame struct {
 	T       float64  `json:"t"`
 	Show    *float64 `json:"show"`
 	CutPart int64    `json:"cut_part"`
+	Extras  []string `json:"extras"`
 	Cols    int      `json:"cols"`
 	Rows    int      `json:"rows"`
 	W       int      `json:"w"`
@@ -167,13 +170,31 @@ func ask(c *http.Client, wall string) (frame, error) {
 	if f.Cols < 1 || f.Rows < 1 || f.W < 1 || f.H < 1 || f.W > 1024 || f.H > 1024 {
 		return f, fmt.Errorf("the wall's frame has no shape: %+v", f)
 	}
+	if err := checkExtras(f.Extras); err != nil {
+		return f, fmt.Errorf("the wall's frame: %w", err)
+	}
 	return f, nil
+}
+
+// checkExtras refuses extras that are not the show's, or one twice.
+func checkExtras(xs []string) error {
+	seen := map[string]bool{}
+	for _, x := range xs {
+		if !slices.Contains(show.Extras, x) {
+			return fmt.Errorf("extra %q is not one of %s", x, strings.Join(show.Extras, ", "))
+		}
+		if seen[x] {
+			return fmt.Errorf("extra %q is named twice", x)
+		}
+		seen[x] = true
+	}
+	return nil
 }
 
 // render draws the tile's square of the show at the frame's moment in its
 // look; sh keeps what a part made at its first frame for the frames after.
 func render(sh *show.Show, tile int, f frame, look string) *image.RGBA {
-	return sh.Render(tile, show.Frame{T: f.at(), Cols: f.Cols, Rows: f.Rows, W: f.W, H: f.H, CutPart: f.CutPart}, look)
+	return sh.Render(tile, show.Frame{T: f.at(), Cols: f.Cols, Rows: f.Rows, W: f.W, H: f.H, CutPart: f.CutPart, Extras: f.Extras}, look)
 }
 
 // upMs is how long this machine had run when the tile's program started,

@@ -2,7 +2,7 @@ package show
 
 import "math"
 
-// day is a whole day over hills in a minute: night and its stars, dawn,
+// day is a whole day over hills in a scene's seven minutes: night and its stars, dawn,
 // the sun's arc, dusk and the moon, over ridges that pale with distance,
 // with a lake below that holds it all again, on some days clouds, on some
 // nights the northern lights.
@@ -56,7 +56,7 @@ func (r *ridge) top(x float64) float64 {
 }
 
 func (d *day) frame(v *view, t float64) {
-	s := newSky(math.Mod(d.start+t*0.4, 24), d.seed)
+	s := newSky(math.Mod(d.start+t*24/SceneLen, 24), d.seed)
 	s.clouds, s.cloudAt, s.wind, s.aurora = d.clouds, 0.4, 0.05, d.aurora
 	v.each(func(x, y float64) vec3 {
 		if d.lake && y < d.water {

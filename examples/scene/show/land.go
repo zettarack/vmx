@@ -45,7 +45,7 @@ func newLand(seed uint64, v *view) scene {
 	l := &land{seed: seed, n: n, hgt: make([]float64, n*n), alb: make([]vec3, n*n), nrm: make([]vec3, n*n)}
 	hours := []float64{6.4, 8.5, 12.5, 16.6, 18.2, 22.5, 1.5}
 	l.hour = hours[int(h01(seed, 1)*float64(len(hours)))]
-	l.rate = 0.03
+	l.rate = 0.012
 	l.speed = 14 + 10*h01(seed, 2)
 	l.yaw0 = 2 * math.Pi * h01(seed, 3)
 	l.x0, l.z0 = n*h01(seed, 4), n*h01(seed, 5)

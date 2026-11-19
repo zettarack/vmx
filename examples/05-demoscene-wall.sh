@@ -2,10 +2,13 @@
 # The demoscene wall: forty virtual machines drawing one picture.
 #
 # WHAT IT IS
-# One picture, an hour of scenes (scene/show: ten families, a minute each,
-# each with a seed of its own, the VMX wordmark with zettarack.com under
-# it every fifteen minutes; the page's Before, Hold, Next and a button for each family, or
-# the arrows, space and 1 to 0, move the show for every tile at once),
+# One picture, hours of scenes (scene/show: ten families, seven minutes
+# each, each with a seed of its own; the VMX intro, the wordmark with
+# zettarack.com under it and a scroller of what vmx does, opens the show and
+# comes back after every two scenes; the page's Before, Hold, Next and a
+# button for each family, or the arrows, space and 1 to 0, move the show for
+# every tile at once, and its extras lay stars, rasters, scanlines, a
+# vignette or grain over every scene),
 # cut into a grid of places, COLS x ROWS
 # (8 x 5 = 40). Each tile (scene/agent) is a container of its own: an
 # ordinary container image, the same one for every tile, which vmx runs as
@@ -66,7 +69,7 @@
 #                   press on one restores the tile to that one, and the
 #                   snapshots newer than it go with it, as the tile says
 #   Update          its microVM and its disk destroyed and a new one booted
-#                   from the wall's other image, scene-agent:15-green (the
+#                   from the wall's other image, scene-agent:16-green (the
 #                   same program drawing in green where the first draws in
 #                   blue: a new version), on the
 #                   same volume, eight at a time over the wall while the
@@ -76,7 +79,7 @@
 #                   snapshots go with the old machine. A tile on the new
 #                   version already says so. A Rebuild, a clone or a tile
 #                   run again keeps the version it has
-#   Roll back       the same, back to the first image, scene-agent:15: green
+#   Roll back       the same, back to the first image, scene-agent:16: green
 #                   to blue, eight at a time over the wall. It changes the
 #                   program and keeps the data (the volume's count goes on);
 #                   Restore is the other way back, the data to a snapshot
@@ -188,8 +191,8 @@
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
 # The images come with the script: scene/images holds the archives of
-# the three, scene-agent:15, its next version scene-agent:15-green and
-# scene-wall:24, which it takes with no argument and checks against the
+# the three, scene-agent:16, its next version scene-agent:16-green and
+# scene-wall:25, which it takes with no argument and checks against the
 # digests below, so a clone of the examples, or a host whose installer put
 # them on it, runs the wall with no registry and no network.
 # scene/README.md builds them again from their sources. --from DIR takes
@@ -205,10 +208,10 @@
 #   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:15 NEXT_IMAGE=ghcr.io/you/scene-agent:15-green WALL_IMAGE=ghcr.io/you/scene-wall:24 ./05-demoscene-wall.sh
-#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:15 \
-#   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:15-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:24 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:16 NEXT_IMAGE=ghcr.io/you/scene-agent:16-green WALL_IMAGE=ghcr.io/you/scene-wall:25 ./05-demoscene-wall.sh
+#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:16 \
+#   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:16-green \
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:25 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -254,13 +257,13 @@ orphans=$here/.made/05-demoscene-wall.orphans
 protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
-# The images' digests, the tiles' scene-agent:15 and its second version
-# scene-agent:15-green, and the wall's scene-wall:24,
+# The images' digests, the tiles' scene-agent:16 and its second version
+# scene-agent:16-green, and the wall's scene-wall:25,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
-agent_digest=sha256:3627c841d10e7814aa9b30bc4282b325be229ac45e93b40c0b58b76bc74ae0bf
-wall_digest=sha256:ee098631ee57e96367d9b78be463b9ff5b7111deb2b819d351dd2423e1818d38
-next_digest=sha256:1a6b631eeacfec5f2a8a4cce3968bea7a5efee0859f56aa19081a2a714649e8b
+agent_digest=sha256:5593ba8487b13ce3e64b0926bf97d0b68743f8a05ea1304d1a037ff98bf8aeaa
+wall_digest=sha256:212e0c5332f7e289f92bc21da1a14da5447f11ae9dcb17a68e51d2f981e3a1cd
+next_digest=sha256:8b6083e372e373708be6341e5574697258cb0783198f4141c2f69501e882a2e7
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 # With no argument and no image named in the environment, the images are
@@ -280,13 +283,13 @@ if [ "${1:-}" = --from ]; then
 	from=${2%/}
 	shift 2
 	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-green.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
-	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:15}
-	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:15-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:24}
+	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:16}
+	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:16-green}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:25}
 fi
-agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:15}
-next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:15-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:24}
+agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:16}
+next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:16-green}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:25}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"

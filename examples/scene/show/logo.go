@@ -16,6 +16,11 @@ type logo struct {
 	seed   uint64
 	// The tagline's left, its top and its font's cell.
 	tx, ty, ts int
+	// The intro's scroller: its line, its top, its cell and its speed,
+	// which takes the whole line across the wall while the word holds.
+	intro  string
+	iy, is int
+	ispeed float64
 }
 
 type lit struct {
@@ -38,6 +43,9 @@ func newLogo(seed uint64, v *view) scene {
 	// A digit fills most of its cell's height.
 	lg := &logo{cs: cs, ds: max(1, int(float64(cs)*0.72/7+0.5)), ox: (v.pw - across*cs) / 2, oy: v.ph*42/100 - 7*cs/2, seed: seed}
 	lg.ts = max(2, cs/7)
+	lg.intro, lg.is = introLine(), max(2, v.ph/170)
+	lg.iy = v.ph*82/100 - 7*lg.is/2
+	lg.ispeed = float64(v.pw+len(lg.intro)*6*lg.is) / (IntroLen - 24)
 	lg.tx, lg.ty = (v.pw-(len(tagline)*6*lg.ts-lg.ts))/2, lg.oy+7*cs+cs*6/5
 	for li := 0; li < len(word); li++ {
 		g := glyphFor(word[li])
@@ -52,7 +60,7 @@ func newLogo(seed uint64, v *view) scene {
 					arrive: 2.4 + float64(6-r)*0.62 + float64(li)*0.11 + 0.9*h01(salt, 1),
 					fall:   1.0 + 0.7*h01(salt, 2),
 					from:   float64(cs) * (2 + 12*h01(salt, 3)),
-					leave:  50.5 + float64(6-r)*0.22 + float64(li)*0.07 + 0.9*h01(salt, 4),
+					leave:  IntroLen - 9.5 + float64(6-r)*0.22 + float64(li)*0.07 + 0.9*h01(salt, 4),
 					salt:   salt,
 				})
 			}
@@ -74,12 +82,27 @@ func newLogo(seed uint64, v *view) scene {
 func (lg *logo) frame(v *view, t float64) {
 	// The ground: a dim liquid of light, barely moving, as the desktop's
 	// own wallpaper.
+	// Copper bars roll behind the scroller while it runs, three of them.
+	bars := smooth(10, 13, t) * smooth(IntroLen-10, IntroLen-13, t)
+	barMid := float64(lg.iy) + 3.5*float64(lg.is)
 	v.each(func(x, y float64) vec3 {
 		n := fbm(x*1.3+t*0.015, y*1.3-t*0.01, 3, lg.seed)
-		return v3(0.004, 0.009, 0.007).scale(1.2 + n)
+		c := v3(0.004, 0.009, 0.007).scale(1.2 + n)
+		if bars > 0 {
+			row := (0.5 - y) * float64(v.ph)
+			for k := 0; k < 3; k++ {
+				fk := float64(k)
+				at := barMid + float64(v.ph)*0.07*math.Sin(t*1.3+fk*2.1)
+				if d := (row - at) / (float64(v.ph) * 0.022); d > -1 && d < 1 {
+					copper := palette{gray(0.5), gray(0.5), v3(1, 1, 1), v3(0.05+fk*0.3, 0.38+fk*0.3, 0.71+fk*0.3)}.at(t * 0.05)
+					c = c.add(copper.scale(0.5 * bars * math.Cos(d*math.Pi/2)))
+				}
+			}
+		}
+		return c
 	})
 	// The rain thins while the word holds, and comes back as it falls.
-	lg.rain.draw(v, t, 0.45+0.55*smooth(9, 2, t)+0.55*smooth(49, 54, t))
+	lg.rain.draw(v, t, 0.45+0.55*smooth(9, 2, t)+0.55*smooth(IntroLen-11, IntroLen-6, t))
 	cs, ds := lg.cs, lg.ds
 	dw, dh := 5*ds, 7*ds
 	mid := float64(lg.oy) + 3.5*float64(cs)
@@ -140,8 +163,8 @@ func (lg *logo) frame(v *view, t float64) {
 	// Under the word, once it has landed, the site typed out, a cursor
 	// blinking after it; it goes with the word. It is the picture's, as
 	// every word a scene writes is: the page's Text off leaves it.
-	if t > 8.5 && t < 50.5 {
-		fade := smooth(50.5, 49.5, t)
+	if t > 8.5 && t < IntroLen-9.5 {
+		fade := smooth(IntroLen-9.5, IntroLen-10.5, t)
 		n := min(len(tagline), int((t-8.5)/0.12)+1)
 		for i := 0; i < n; i++ {
 			g := glyphFor(tagline[i])
@@ -151,10 +174,15 @@ func (lg *logo) frame(v *view, t float64) {
 			v.box(lg.tx+n*6*lg.ts, lg.ty, 5*lg.ts, 7*lg.ts, live.scale(0.5*fade))
 		}
 	}
+	// The scroller: what vmx is and does, start to end, riding its wave
+	// over the copper bars while the word holds.
+	if t > 12 && t < IntroLen-10 {
+		v.scroller(lg.intro, lg.iy, lg.is, lg.ispeed, 12, t, live.scale(0.95*smooth(12, 13, t)*smooth(IntroLen-10, IntroLen-11, t)).add(gray(0.2)))
+	}
 	// The drips from the two t's: one forms under the foot, hangs, and
 	// falls to the bottom, faint.
 	for _, d := range lg.drips {
-		if t < 12 || t > 50 {
+		if t < 12 || t > IntroLen-10 {
 			continue
 		}
 		u := math.Mod(t-12+d.off, d.every)

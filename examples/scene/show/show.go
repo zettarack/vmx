@@ -3,9 +3,10 @@
 // wall's clock alone, so forty tiles that each draw their own square agree
 // on the whole picture without a word between them.
 //
-// A part plays a minute. The wordmark opens the show and comes back every
-// fifteenth part; between, the families of the rotation each play once a
-// round, in an order of the round's own and with a seed of their own: a
+// A scene plays seven minutes. The vmx intro, the wordmark with its
+// scroller of what vmx does, opens the show and comes back after every
+// two scenes, two and a half minutes each time; between, the families of
+// the rotation each play once a round, in an order of the round's own and with a seed of their own: a
 // landscape at dawn in one round, a canyon by moonlight in the next. A tile
 // changes part at its own moment, the top left first, with a flash, so the
 // change crosses the wall from machine to machine.
@@ -23,11 +24,52 @@ import (
 	"math"
 )
 
-// PartLen is how long a part plays, in seconds.
-const PartLen = 60.0
+// SceneLen is how long a scene plays, IntroLen the vmx intro, in seconds.
+const (
+	SceneLen = 420.0
+	IntroLen = 150.0
+)
 
-// logoEvery: the wordmark is every fifteenth part, the first among them.
-const logoEvery = 15
+// logoEvery: the intro is every third part, the first among them.
+const logoEvery = 3
+
+// cycle is an intro and the scenes after it.
+const cycle = IntroLen + (logoEvery-1)*SceneLen
+
+// LenOf is how long part p plays.
+func LenOf(p int64) float64 {
+	if p%logoEvery == 0 {
+		return IntroLen
+	}
+	return SceneLen
+}
+
+// StartOf is when part p starts, on the show's clock.
+func StartOf(p int64) float64 {
+	if p <= 0 {
+		return 0
+	}
+	c, r := p/logoEvery, p%logoEvery
+	s := float64(c) * cycle
+	if r > 0 {
+		s += IntroLen + float64(r-1)*SceneLen
+	}
+	return s
+}
+
+// PartAt is the part playing at t, and how far into it t is.
+func PartAt(t float64) (int64, float64) {
+	t = math.Max(t, 0)
+	c := math.Floor(t / cycle)
+	r := t - c*cycle
+	p := int64(c) * logoEvery
+	if r < IntroLen {
+		return p, r
+	}
+	r -= IntroLen
+	k := int64(r / SceneLen)
+	return p + 1 + k, r - float64(k)*SceneLen
+}
 
 // wipe is how long a change of part takes to cross the wall; flashFor is
 // how long a tile's flash lasts when it changes.
@@ -41,12 +83,14 @@ const (
 // wall's controls last moved the show to the start of: that change does
 // not wait for each tile's turn (the part before it is not what was
 // playing), the flash alone still crossing the wall. 0, the zero value,
-// is no cut: part 0 has no part before it.
+// is no cut: part 0 has no part before it. Extras are the page's extras
+// on (Extras' names), drawn over the scene; any other name is passed over.
 type Frame struct {
 	T          float64
 	Cols, Rows int
 	W, H       int
 	CutPart    int64
+	Extras     []string
 }
 
 // Looks are the colours a tile can draw in: blue (the wall's first
@@ -85,7 +129,7 @@ var rotation = []family{
 	{"shapes", newShapes},
 	{"mandel", newMandel},
 	{"julia", newJulia},
-	{"vector", newVector},
+	{"blackhole", newBlackhole},
 	{"plasma", newPlasma},
 }
 
@@ -106,8 +150,8 @@ func Families() []string {
 }
 
 // NextOf is the first part after p that plays the family named name, or
-// -1 when none does within limit parts (a round plays every family, so
-// twenty finds any of them).
+// -1 when none does within limit parts (a round plays every family, an
+// intro after every two, so thirty finds any of them).
 func NextOf(p int64, name string, limit int) int64 {
 	for q := p + 1; q <= p+int64(limit); q++ {
 		if PartName(q) == name {
@@ -166,17 +210,23 @@ func (s *Show) Render(place int, f Frame, look string) *image.RGBA {
 	}
 	col, row := place%f.Cols, place/f.Cols
 	t := math.Max(f.T, 0)
-	p := int64(t / PartLen)
-	local := t - float64(p)*PartLen
+	p, local := PartAt(t)
 	// The tile's own moment of change: the top left first, the bottom
 	// right last, a clone's place below the picture with the last row.
 	at := float64(col+min(row, f.Rows-1)) / float64(max(f.Cols+f.Rows-2, 1)) * wipe
 	flash := 0.0
 	if p > 0 && local < at && f.CutPart != p {
-		p, local = p-1, local+PartLen
+		p, local = p-1, local+LenOf(p-1)
 	} else if p > 0 && local >= at && local-at < flashFor {
 		flash = 1 - (local-at)/flashFor
 	}
+	return s.draw(img, col, row, f, p, local, flash, look)
+}
+
+// draw draws part p at local seconds into it on the tile at (col, row) of
+// the picture into img, the frame's extras over it, a change's flash
+// added.
+func (s *Show) draw(img *image.RGBA, col, row int, f Frame, p int64, local, flash float64, look string) *image.RGBA {
 	v := &view{x0: col * f.W, y0: row * f.H, w: f.W, h: f.H, pw: f.Cols * f.W, ph: f.Rows * f.H}
 	if s.sc == nil || s.part != p || s.cols != f.Cols || s.rows != f.Rows || s.w != f.W || s.h != f.H {
 		fam, seed := partOf(p)
@@ -185,6 +235,7 @@ func (s *Show) Render(place int, f Frame, look string) *image.RGBA {
 	}
 	v.px = make([]vec3, f.W*f.H)
 	s.sc.frame(v, local)
+	extras(v, f.Extras, math.Max(f.T, 0))
 	paint(img, v, look, 0.9*flash*flash)
 	return img
 }
@@ -317,6 +368,74 @@ func (v *view) stamp(g *glyph, gx, gy, s int, c vec3) {
 			if g[r][k] == '#' {
 				v.box(gx+k*s, gy+r*s, s, s, c)
 			}
+		}
+	}
+}
+
+// Extras are what a page can lay over any scene, as the desktop's
+// screensaver lays layers over its picture: stars, rasters (copper bars
+// rolling), scanlines, a vignette and grain. Every tile draws them over its
+// own square, from the picture's coordinates, so they meet at the tiles'
+// edges as the scene does.
+var Extras = []string{"stars", "rasters", "scanlines", "vignette", "grain"}
+
+// extras lays the extras named in on over the tile's picture at t.
+func extras(v *view, on []string, t float64) {
+	if len(on) == 0 {
+		return
+	}
+	has := map[string]bool{}
+	for _, n := range on {
+		has[n] = true
+	}
+	stars, rasters, scan, vig, grain := has["stars"], has["rasters"], has["scanlines"], has["vignette"], has["grain"]
+	scale := 1.0
+	if v.display {
+		// A palette's colours are the screen's already: an extra's light is
+		// laid on at the screen's own strength.
+		scale = 0.6
+	}
+	cx, cy := float64(v.pw)/2, float64(v.ph)/2
+	// The copper bars: four, each its own colour, rolling up and down.
+	var mid [4]float64
+	var tint [4]vec3
+	for bar := range mid {
+		fb := float64(bar)
+		mid[bar] = cy + cy*0.85*math.Sin(t*0.9+fb*0.8)
+		tint[bar] = palette{gray(0.5), gray(0.5), v3(1, 1, 1), v3(fb*0.25, 0.33+fb*0.25, 0.67+fb*0.25)}.at(0).scale(0.45 * scale)
+	}
+	for j := 0; j < v.h; j++ {
+		gy := v.y0 + j
+		for i := 0; i < v.w; i++ {
+			gx := v.x0 + i
+			k := j*v.w + i
+			c := v.px[k]
+			if stars {
+				h := lattice(int64(gx/2), int64((float64(gy)+t*6)/2), 0x5a7)
+				if h&511 < 2 && gx%2 == 0 {
+					b := float64(h>>9&255) / 255
+					c = c.add(gray((0.4 + 1.6*b*b) * (0.6 + 0.4*math.Sin(t*(2+3*b)+float64(h>>20&63))) * scale))
+				}
+			}
+			if rasters {
+				for bar := range mid {
+					if d := (float64(gy) - mid[bar]) / (float64(v.ph) * 0.03); d > -1 && d < 1 {
+						c = c.add(tint[bar].scale(math.Cos(d * math.Pi / 2)))
+					}
+				}
+			}
+			if scan && gy%2 == 1 {
+				c = c.scale(0.55)
+			}
+			if vig {
+				dx, dy := (float64(gx)-cx)/cx, (float64(gy)-cy)/cy
+				c = c.scale(1 - 0.55*sat(0.6*(dx*dx+dy*dy)-0.15))
+			}
+			if grain {
+				g := h01(uint64(gx)*0x9e37+uint64(gy), uint64(t*24))
+				c = c.add(gray((g - 0.5) * 0.08 * scale))
+			}
+			v.px[k] = c
 		}
 	}
 }

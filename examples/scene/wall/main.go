@@ -42,7 +42,6 @@ import (
 	"flag"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"slices"
 	"strconv"
@@ -204,6 +203,9 @@ type wall struct {
 	// wall, every tile's name and counts), for every page open on the wall;
 	// the words a scene writes are the picture's and stay.
 	quiet bool
+	// extras are the page's extras on (show.Extras), laid over every scene
+	// by every tile, for every page open on the wall.
+	extras map[string]bool
 	// pageID is this wall's own id, made when it starts: a page served by
 	// another wall (one swapped in since, or made again) reloads itself.
 	pageID string
@@ -350,14 +352,43 @@ func (s *wall) frame(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Lock()
-	at, cut := s.showNow(time.Now()), s.cut
+	at, cut, extras := s.showNow(time.Now()), s.cut, s.extrasOn()
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"t": time.Since(s.epoch).Seconds(), "show": at, "cut_part": cut, "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
+		"t": time.Since(s.epoch).Seconds(), "show": at, "cut_part": cut, "extras": extras, "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
 	}); err != nil {
 		log.Printf("frame: %v", err)
 	}
+}
+
+// extrasOn is the extras on, in show.Extras' order. s.mu is held.
+func (s *wall) extrasOn() []string {
+	on := []string{}
+	for _, x := range show.Extras {
+		if s.extras[x] {
+			on = append(on, x)
+		}
+	}
+	return on
+}
+
+// extra is the page turning an extra on or off for every tile: a name
+// that is not one of show.Extras is refused, and nothing changes.
+func (s *wall) extra(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !slices.Contains(show.Extras, name) {
+		http.Error(w, "the extras are "+strings.Join(show.Extras, ", "), http.StatusNotFound)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.extras == nil {
+		s.extras = map[string]bool{}
+	}
+	s.extras[name] = !s.extras[name]
+	log.Printf("show: %s %s", name, map[bool]string{true: "on", false: "off"}[s.extras[name]])
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // showDo is the page's controls for the show: next (the next part, from
@@ -373,7 +404,7 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	t := s.showNow(now)
-	p := int64(t / show.PartLen)
+	p, in := show.PartAt(t)
 	var to int64
 	switch {
 	case what == "text":
@@ -395,7 +426,7 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 		to = p + 1
 	case what == "before":
 		to = p
-		if p > 0 && t-float64(p)*show.PartLen < 4 {
+		if p > 0 && in < 4 {
 			to = p - 1
 		}
 	case slices.Contains(show.Families(), what):
@@ -407,7 +438,7 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the show takes next, before, hold, text or a family's name", http.StatusNotFound)
 		return
 	}
-	s.showBase, s.showAt, s.cut = math.Max(float64(to)*show.PartLen, 0), now, to
+	s.showBase, s.showAt, s.cut = show.StartOf(to), now, to
 	log.Printf("show: part %d (%s), from %s", to, show.PartName(to), what)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -842,9 +873,10 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 			"disk": s.host.Disk, "volumes": s.host.Volumes, "age_ms": now.Sub(s.hostAt).Milliseconds()}
 	}
 	at := s.showNow(now)
-	part := int64(at / show.PartLen)
-	doc["show"] = map[string]any{"part": part, "family": show.PartName(part), "in_s": at - float64(part)*show.PartLen,
-		"len_s": show.PartLen, "held": s.showHeld, "text": !s.quiet, "families": show.Families()}
+	part, in := show.PartAt(at)
+	doc["show"] = map[string]any{"part": part, "family": show.PartName(part), "in_s": in,
+		"len_s": show.LenOf(part), "held": s.showHeld, "text": !s.quiet, "families": show.Families(),
+		"extras": s.extrasOn(), "all_extras": show.Extras}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(doc); err != nil {
@@ -983,6 +1015,7 @@ func (s *wall) routes() *http.ServeMux {
 	mux.HandleFunc("GET /snaps/{i}", s.snapsOf)
 	mux.HandleFunc("POST /snaps/{i}", s.snapsSaid)
 	mux.HandleFunc("POST /show/{what}", s.showDo)
+	mux.HandleFunc("POST /extra/{name}", s.extra)
 	return mux
 }
 
@@ -1018,6 +1051,9 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 #fams button{padding:4px 9px;font-size:13px}
 #fams button u{text-decoration:none;color:#8d90c4;margin-right:6px}
 #fams button.on{border-color:#3cffb4;color:#fff;box-shadow:inset 0 0 12px #3cffb444}
+#xtras{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:4px;font-size:13px;color:#8d90c4}
+#xtras button{padding:4px 9px;font-size:13px}
+#xtras button.on{border-color:#ff3cac;color:#fff;box-shadow:inset 0 0 12px #ff3cac44}
 #hold.on,#text.on{border-color:#ffe53c;color:#ffe53c}
 #part{min-width:210px;margin-left:8px;color:#8d90c4;font-size:14px}
 #part b{color:#fff}
@@ -1088,6 +1124,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="dock">
 <div id="panel" hidden>
 <div id="show"><button id="before" title="this part from its start, or the one before it (left arrow)">Before</button><button id="hold" title="hold the show where it is, or let it run on (space)">Hold</button><button id="next" title="the next part (right arrow)">Next</button><i></i><span id="fams"></span><span id="part"></span></div>
+<div id="xtras"></div>
 <div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
 <div id="snaps"></div>
 </div>
@@ -1098,8 +1135,8 @@ button:disabled{opacity:.35;cursor:default}
 <h2>What you are looking at</h2>
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
-<p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx wordmark with zettarack.com under it, a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a helicopter's flight over a plain of vector lines and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
+<p>Ten families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark with zettarack.com under it and a scroller of what vmx does), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole and a plasma. The intro opens the show and plays two and a half minutes after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1281,17 +1318,24 @@ function cfg(on){panel.hidden=!on;$('cfg').setAttribute('aria-expanded',on?'true
 $('cfg').onclick=()=>cfg(panel.hidden);
 // The page's address ending #cfg opens it with cfg's buttons shown.
 if(location.hash==='#cfg')cfg(true);
-// fit: the wall as large as the window lets it be with the lines above it
-// and the buttons under it in view too, so the whole picture is seen with
-// nothing to scroll; again when the window, the buttons or the wall (a
-// clone's row) change size. Text off hides the lines above the wall and
-// keeps their room, and cfg's panel lies over the wall's foot, so neither
-// moves the wall nor changes its size.
-function fit(){wall.style.zoom='';const w=wall.offsetWidth,h=wall.offsetHeight,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
+// fit: the picture (the wall's first COLS x ROWS tiles) as large as the
+// window lets it be with the lines above it and the buttons under it in
+// view too, so the whole picture is seen with nothing to scroll; again when
+// the window, the buttons or the count of tiles change. Clones are rows
+// below the picture at the picture's own size, and the page scrolls down
+// to them: sized by every row, eighty clones shrank the picture to a third
+// (2026-11-18). Text off hides the lines above the wall and keeps their
+// room, and cfg's panel lies over the wall's foot, so neither moves the
+// wall nor changes its size.
+function fit(){wall.style.zoom='';const w=wall.offsetWidth,h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
 const k=Math.max(0.25,Math.min((innerWidth-24)/w,room/h));wall.style.zoom=String(Math.round(k*1000)/1000);}
 addEventListener('resize',fit);new ResizeObserver(fit).observe($('dock'));
-let fams=[];
-function showTick(sh){if(!sh)return;
+let fams=[],xall=[];
+// The extras: a button each, lit while on, the wall's for every page.
+function extrasTick(sh){if(!sh.all_extras)return;
+if(xall.join()!==sh.all_extras.join()){xall=sh.all_extras;const head=document.createElement('span');head.textContent='extras';$('xtras').replaceChildren(head,...xall.map(x=>{const b=document.createElement('button');b.dataset.x=x;b.textContent=x;b.title=x+', laid over every scene, on or off';b.onclick=()=>fetch('/extra/'+encodeURIComponent(x),{method:'POST'});return b;}));}
+const on=new Set(sh.extras||[]);document.querySelectorAll('#xtras button').forEach(b=>b.classList.toggle('on',on.has(b.dataset.x)));}
+function showTick(sh){if(!sh)return;extrasTick(sh);
 if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=String((k+1)%10);b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+' (key '+key+')';b.onclick=()=>showTo(f);return b;}));}
 document.querySelectorAll('#fams button').forEach(b=>b.classList.toggle('on',b.dataset.f===sh.family));
 const s=Math.floor(sh.in_s);$('part').innerHTML='part <b>'+sh.part+'</b> &middot; <b>'+sh.family+'</b> &middot; '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+(sh.held?' &middot; <b>held</b>':'');

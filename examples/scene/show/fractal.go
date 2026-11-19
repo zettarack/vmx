@@ -21,13 +21,17 @@ var dives = [][2]float64{
 
 func newMandel(seed uint64, v *view) scene {
 	d := dives[int(mix64(seed)%uint64(len(dives)))]
-	return &mandel{cx: d[0], cy: d[1], rate: 0.21 + 0.05*h01(seed, 1), turn: 0.06 * (h01(seed, 2) - 0.5), pal: palFor(mix64(seed + 4))}
+	// Deep by the part's end, as deep as a float's 53 bits draw cleanly
+	// (a picture height about 1e-10 across).
+	return &mandel{cx: d[0], cy: d[1], rate: (21 + 2.5*h01(seed, 1)) / SceneLen, turn: 0.03 * (h01(seed, 2) - 0.5), pal: palFor(mix64(seed + 4))}
 }
 
 func (m *mandel) frame(v *view, t float64) {
 	v.display = true
 	scale := 2.8 * math.Exp(-m.rate*t)
-	maxIt := min(150+int(32*t), 2400)
+	// As many steps as the depth wants, not the time: a dive of seven
+	// minutes at a minute's count would ask thirteen thousand.
+	maxIt := min(150+int(70*math.Log(2.8/scale)), 2400)
 	sn, cs := math.Sincos(t * m.turn)
 	v.each(func(x, y float64) vec3 {
 		px, py := (x*cs-y*sn)*scale, (x*sn+y*cs)*scale
@@ -56,7 +60,7 @@ type julia struct {
 }
 
 func newJulia(seed uint64, v *view) scene {
-	return &julia{r: 0.7885 - 0.02*h01(seed, 1), w: 0.05 + 0.04*h01(seed, 2), a0: 2 * math.Pi * h01(seed, 3),
+	return &julia{r: 0.7885 - 0.02*h01(seed, 1), w: 0.02 + 0.02*h01(seed, 2), a0: 2 * math.Pi * h01(seed, 3),
 		zoom: 2.6 + 0.6*h01(seed, 4), turn: 0.05 * (h01(seed, 5) - 0.5), pal: palFor(mix64(seed + 6))}
 }
 
@@ -64,7 +68,7 @@ func (j *julia) frame(v *view, t float64) {
 	v.display = true
 	cr, ci := j.r*math.Cos(j.a0+t*j.w), j.r*math.Sin(j.a0+t*j.w)
 	sn, cs := math.Sincos(t * j.turn)
-	z := j.zoom * (1 - 0.25*smooth(0, 60, t))
+	z := j.zoom * (1 - 0.25*smooth(0, SceneLen, t))
 	v.each(func(x, y float64) vec3 {
 		zr, zi := (x*cs-y*sn)*z, (x*sn+y*cs)*z
 		n := 0

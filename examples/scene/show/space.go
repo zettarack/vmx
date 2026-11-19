@@ -50,7 +50,9 @@ func (s *space) frame(v *view, t float64) {
 		s.run(v, t)
 		return
 	}
-	c := s.at.add(s.drift.scale(t))
+	// The world drifts nearer and back once in the part: a drift held on
+	// for seven minutes would carry it through the camera.
+	c := s.at.add(s.drift.scale(30 * math.Sin(t/SceneLen*math.Pi)))
 	spin := rotXY(0, t*0.035)
 	mo := 0.9 + t*0.1
 	ms, mc := math.Sincos(mo)
