@@ -1028,11 +1028,11 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 .t span{position:absolute;left:4px;bottom:4px;max-width:calc(100% - 16px);padding:1px 4px;border-radius:2px;background:#05040acc;font-size:10px;line-height:1.3;color:#fff;pointer-events:none}
 .t b{position:absolute;right:4px;top:4px;padding:0 4px;border-radius:2px;background:#05040acc;font-size:12px;color:#fff;pointer-events:none;white-space:pre;text-align:right}
 .t b:empty{display:none}
-body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t b{display:none}
+body.quiet h1,body.quiet #bar,body.quiet #host{visibility:hidden}
+body.quiet .t span,body.quiet .t b{display:none}
 #strip{display:flex;gap:8px;align-items:center;justify-content:center}
 #panel{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 14px;background:#0b0a16ee;border:1px solid #2a2850;border-radius:4px}
 #panel[hidden]{display:none}
-body.quiet #wall{margin-top:18px}
 .t span,.t b{transition:opacity .3s}
 body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}
 #cfg.on{border-color:#3cffb4;color:#fff}
@@ -1232,8 +1232,10 @@ async function tick(){try{const s=await(await fetch('/state')).json();
 // Another wall answers (swapped in since, or made again): its page.
 if(s.page&&s.page!=='PAGEID'){location.reload();return;}
 if(s.era!==era){era=s.era;tiles.forEach((o,i)=>{o.v=-1;o.im.removeAttribute('src');choose(i,false);});}
+const had=tiles.length;
 while(tiles.length<s.tiles.length)add(tiles.length);
 while(tiles.length>s.tiles.length){const o=tiles.pop();sel.delete(tiles.length);o.d.remove();}
+if(tiles.length!==had)fit();
 // How many tiles draw each version: a tile is counted by its newest
 // picture while that is under ten seconds old, so one being replaced keeps
 // its count until the new machine draws, and one removed drops out.
@@ -1277,6 +1279,14 @@ for(const k of ['pointermove','pointerdown','keydown','touchstart','wheel'])docu
 setInterval(()=>document.body.classList.toggle('idle',Date.now()-stirred>6000&&panel.hidden&&!sel.size),250);
 function cfg(on){panel.hidden=!on;$('cfg').setAttribute('aria-expanded',on?'true':'false');$('cfg').classList.toggle('on',on);}
 $('cfg').onclick=()=>cfg(panel.hidden);
+// fit: the wall as large as the window lets it be with the lines above it
+// and the buttons under it in view too, so the whole picture is seen with
+// nothing to scroll; again when the window, the buttons (cfg opened) or
+// the wall (a clone's row) change size. Text off hides the lines above the
+// wall and keeps their room, so the wall does not move.
+function fit(){wall.style.zoom='';const w=wall.offsetWidth,h=wall.offsetHeight,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
+const k=Math.max(0.25,Math.min((innerWidth-24)/w,room/h));wall.style.zoom=String(Math.round(k*1000)/1000);}
+addEventListener('resize',fit);new ResizeObserver(fit).observe($('dock'));
 let fams=[];
 function showTick(sh){if(!sh)return;
 if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=String((k+1)%10);b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+' (key '+key+')';b.onclick=()=>showTo(f);return b;}));}
@@ -1296,5 +1306,6 @@ e.preventDefault();});
 const swatches={blue:['000000','000768','031c93','0f3fb4','3271d0','7ab1e8','ffffff'],green:['000000','076800','1c9303','3fb40f','71d032','b1e87a','ffffff']};
 const swatch=c=>'data:image/svg+xml,'+encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3' preserveAspectRatio='none'><linearGradient id='g' x2='1' y2='1'>"+c.map((h,k)=>"<stop offset='"+(k/(c.length-1)).toFixed(3)+"' stop-color='#"+h+"'/>").join('')+"</linearGradient><rect width='4' height='3' fill='url(#g)'/></svg>");
 document.querySelectorAll('.lg img[data-look]').forEach(im=>{im.src=swatch(swatches[im.dataset.look]);});
+fit();
 tick();
 </script></body></html>`

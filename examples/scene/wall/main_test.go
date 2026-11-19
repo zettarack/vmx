@@ -1170,7 +1170,9 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
 		// Text off takes all the text away: the tiles' names and counts and
 		// the lines above the wall, as well as the line in the picture.
-		"body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t b{display:none}", "document.body.classList.toggle('quiet',sh.text===false);", "takes the page's own text away", "the words a scene writes are part of the picture and stay",
+		"body.quiet h1,body.quiet #bar,body.quiet #host{visibility:hidden}", "body.quiet .t span,body.quiet .t b{display:none}",
+		// The wall fits the window, the lines above and the buttons under it in view.
+		"function fit(){", "new ResizeObserver(fit).observe($('dock'));", "if(tiles.length!==had)fit();", "document.body.classList.toggle('quiet',sh.text===false);", "takes the page's own text away", "the words a scene writes are part of the picture and stay",
 		// The names and counts fade when nobody stirs.
 		"body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}", "Date.now()-stirred>6000&&panel.hidden&&!sel.size", "fade six seconds after",
 		// The buttons fold into cfg under the wall, closed at first.

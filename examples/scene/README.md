@@ -64,7 +64,8 @@ every page open on it, and the tiles' own. **Text off** beside it takes
 the page's own text away (the title, the lines above the wall, every
 tile's name and its disk and volume counts), so the demo shows alone;
 the words a scene writes are part of the picture and stay. **Text on**
-brings it back; with it on, the tiles' names and counts fade six seconds
+brings it back (the lines above the wall keep their room, so the wall
+stays where it is); with it on, the tiles' names and counts fade six seconds
 after the mouse or the keys last moved, and come back with the next move
 (they stay while cfg is open or a tile is chosen). The keys do the same: the left and right arrows, space, c, t,
 and 1 to 0 for the families in the order shown. The wall keeps the show's clock and hands it to the
@@ -72,6 +73,11 @@ tiles with each frame (`show`; `cut_part` for a part the controls moved
 to, which every tile shows at once); a tile from before the
 controls draws its old picture by the wall's time, and a wall from before
 them sends no show, so a tile then draws the show by the wall's time.
+
+The page fits the wall to the window, as large as the window lets it
+be with the lines above it and the buttons under it in view, so the
+whole picture is seen with nothing to scroll; opening cfg makes room
+for its buttons.
 
 Each tile's look turns the scene's light into its colours: `blue` and
 `green` each one ramp, black through its colour to white, by the light's
@@ -188,7 +194,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:14`, `scene-agent:14-green` and `scene-wall:22`, the
+archives, `scene-agent:14`, `scene-agent:14-green` and `scene-wall:23`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -211,10 +217,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
 podman build -f Containerfile.agent -t scene-agent:14 .
 podman build -f Containerfile.green -t scene-agent:14-green .
-podman build -f Containerfile.wall -t scene-wall:22 .
+podman build -f Containerfile.wall -t scene-wall:23 .
 podman save --format oci-archive -o scene-agent.tar scene-agent:14
 podman save --format oci-archive -o scene-agent-green.tar scene-agent:14-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:22
+podman save --format oci-archive -o scene-wall.tar scene-wall:23
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -228,7 +234,7 @@ above.
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:14 \
 NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:14-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:22 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:23 \
 ./05-demoscene-wall.sh
 ```
 
