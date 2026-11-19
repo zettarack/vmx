@@ -1,6 +1,6 @@
 # The tiles' second image (scene/README.md): the same program as
-# scene-agent:11, drawing in green where the first draws in blue, a new
+# scene-agent:12, drawing in green where the first draws in blue, a new
 # version of it for the wall's Update to roll out over the tiles, and its
 # Roll back to take back.
-FROM scene-agent:11
+FROM scene-agent:12
 ENV LOOK=green

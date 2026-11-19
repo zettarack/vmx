@@ -956,6 +956,10 @@ func (s *wall) page(w http.ResponseWriter, _ *http.Request) {
 	// the seven names in capitals, which the replacer takes as its own.
 	r := strings.NewReplacer("PAGEID", s.pageID, "MAXTILES", strconv.Itoa(maxTiles), "NTILES", strconv.Itoa(s.cols*s.rows), "COLS", strconv.Itoa(s.cols), "ROWS", strconv.Itoa(s.rows), "TW", strconv.Itoa(s.w), "TH", strconv.Itoa(s.h))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Never kept: a page kept by a browser outlives the wall that served
+	// it, and showed an older page's buttons after a new wall came
+	// (2026-11-19).
+	w.Header().Set("Cache-Control", "no-store")
 	if _, err := io.WriteString(w, r.Replace(page)); err != nil {
 		log.Printf("page: %v", err)
 	}
@@ -1029,6 +1033,8 @@ body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t 
 #panel{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 14px;background:#0b0a16ee;border:1px solid #2a2850;border-radius:4px}
 #panel[hidden]{display:none}
 body.quiet #wall{margin-top:18px}
+.t span,.t b{transition:opacity .3s}
+body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}
 #cfg.on{border-color:#3cffb4;color:#fff}
 .t::after{content:'';position:absolute;inset:0;border:3px solid transparent;pointer-events:none}
 .t.sel::after{border-color:#ff3cac;box-shadow:inset 0 0 0 1px #000,inset 0 0 22px #ff3cacbb}
@@ -1092,8 +1098,8 @@ button:disabled{opacity:.35;cursor:default}
 <h2>What you are looking at</h2>
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
-<p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx wordmark with zettarack.com under it, bits, land, day, space, shapes, a Mandelbrot dive, a Julia set, a tunnel and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
+<p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx wordmark with zettarack.com under it, a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a tunnel and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1262,6 +1268,13 @@ $('before').onclick=()=>showTo('before');$('hold').onclick=()=>showTo('hold');$(
 // cfg: the show's and the tiles' buttons, folded under the wall so the
 // wall keeps the room; open or closed by its button, the key c, or Escape.
 const panel=$('panel');
+// The tiles' names and counts fade six seconds after the last move of the
+// mouse, touch or key, and come back with the next; never while cfg is
+// open or a tile is chosen. Once the counts are seen running, the picture
+// is what is watched.
+let stirred=Date.now();
+for(const k of ['pointermove','pointerdown','keydown','touchstart','wheel'])document.addEventListener(k,()=>{stirred=Date.now();document.body.classList.remove('idle');},{passive:true});
+setInterval(()=>document.body.classList.toggle('idle',Date.now()-stirred>6000&&panel.hidden&&!sel.size),250);
 function cfg(on){panel.hidden=!on;$('cfg').setAttribute('aria-expanded',on?'true':'false');$('cfg').classList.toggle('on',on);}
 $('cfg').onclick=()=>cfg(panel.hidden);
 let fams=[];

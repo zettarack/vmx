@@ -78,7 +78,7 @@ var wordmark = family{"vmx", newLogo}
 // rotation is the families between two wordmarks. Each round plays them
 // all, in an order of its own.
 var rotation = []family{
-	{"bits", newBits},
+	{"grid", newGrid},
 	{"land", newLand},
 	{"day", newDay},
 	{"space", newSpace},

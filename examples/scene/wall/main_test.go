@@ -1171,6 +1171,8 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		// Text off takes all the text away: the tiles' names and counts and
 		// the lines above the wall, as well as the line in the picture.
 		"body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t b{display:none}", "document.body.classList.toggle('quiet',sh.text===false);", "takes the page's own text away", "the words a scene writes are part of the picture and stay",
+		// The names and counts fade when nobody stirs.
+		"body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}", "Date.now()-stirred>6000&&panel.hidden&&!sel.size", "fade six seconds after",
 		// The buttons fold into cfg under the wall, closed at first.
 		`<div id="panel" hidden>`, `<button id="cfg"`, "<b>cfg</b>", "else if(e.key==='c')cfg(panel.hidden);", "else if(!panel.hidden)cfg(false);",
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
@@ -1179,7 +1181,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 			t.Errorf("the page does not have %q", said)
 		}
 	}
-	for _, fam := range []string{"vmx", "bits", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "tunnel", "plasma"} {
+	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "tunnel", "plasma"} {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
 		}
@@ -1262,5 +1264,14 @@ func TestAPageServedByAnotherWallReloads(t *testing.T) {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil || d.Page != a.pageID {
 		t.Errorf("the state's page: %q (%v), want %q", d.Page, err, a.pageID)
+	}
+}
+
+// The page is never kept by a browser: a kept page outlives its wall.
+func TestThePageIsNeverKept(t *testing.T) {
+	w := httptest.NewRecorder()
+	fourTiles().routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control: %q, want no-store", got)
 	}
 }
