@@ -1072,6 +1072,7 @@ body.quiet .t span,body.quiet .t b{display:none}
 .t span,.t b{transition:opacity .3s}
 body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}
 #cfg.on{border-color:#3cffb4;color:#fff}
+#cfg b{color:#ff3cac}
 .t::after{content:'';position:absolute;inset:0;border:3px solid transparent;pointer-events:none}
 .t.sel::after{border-color:#ff3cac;box-shadow:inset 0 0 0 1px #000,inset 0 0 22px #ff3cacbb}
 .none span{color:#8d90c4}
@@ -1136,7 +1137,7 @@ button:disabled{opacity:.35;cursor:default}
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
 <p>Ten families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark with zettarack.com under it and a scroller of what vmx does), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole and a plasma. The intro opens the show and plays two and a half minutes after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. Choosing a tile puts cfg's buttons away, so the rows under them can be chosen too; <b>cfg</b>, the count of tiles chosen beside it, brings them back. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1225,13 +1226,16 @@ function clones(){const v=count.value.trim(),k=/^[0-9]+$/.test(v)?+v:0;return k>
 count.addEventListener('input',()=>count.classList.toggle('bad',!clones()));
 let era=0,held=false,painting=null;
 const pad=i=>String(i).padStart(2,'0');
-function tools(){$('chosen').innerHTML=sel.size?'<b>'+sel.size+'</b> chosen':'click or drag to choose';verbs.forEach(b=>b.disabled=!sel.size||held);$('all').disabled=held;$('none').disabled=!sel.size;}
+function tools(){$('chosen').innerHTML=sel.size?'<b>'+sel.size+'</b> chosen':'click or drag to choose';$('cfg').innerHTML='cfg'+(sel.size?' <b>'+sel.size+'</b>':'');verbs.forEach(b=>b.disabled=!sel.size||held);$('all').disabled=held;$('none').disabled=!sel.size;}
 function choose(i,on){const o=tiles[i];if(!o)return;if(on)sel.add(i);else sel.delete(i);o.d.classList.toggle('sel',on);}
 function add(i){const d=document.createElement('div');d.className='t dead';d.dataset.i=i;const im=new Image();im.alt='';im.draggable=false;const l=document.createElement('span');l.textContent='tile-'+pad(i);const c=document.createElement('b');d.append(im,l,c);wall.append(d);tiles.push({d,im,l,c,v:-1});}
 for(let i=0;i<n;i++)add(i);
 // A press chooses the tile or lets it go; moving on with the button held
 // does the same to every tile passed over.
-wall.addEventListener('pointerdown',e=>{const d=e.target.closest('.t');if(!d||e.button!==0)return;e.preventDefault();const i=+d.dataset.i;painting=!sel.has(i);choose(i,painting);tools();});
+// Choosing puts cfg's buttons away: they lie over the wall's foot, and
+// the rows under them could be neither clicked nor dragged onto
+// (2026-11-18). cfg, the count of tiles chosen beside it, brings them back.
+wall.addEventListener('pointerdown',e=>{const d=e.target.closest('.t');if(!d||e.button!==0)return;e.preventDefault();const i=+d.dataset.i;painting=!sel.has(i);choose(i,painting);tools();cfg(false);});
 document.addEventListener('pointermove',e=>{if(painting===null)return;const d=document.elementFromPoint(e.clientX,e.clientY)?.closest('#wall .t');if(d)choose(+d.dataset.i,painting);tools();});
 for(const k of ['pointerup','pointercancel'])document.addEventListener(k,()=>{painting=null;});
 verbs.forEach(b=>b.onclick=()=>{const what=b.dataset.do,chosen=[...sel].sort((a,c)=>a-c);if(!chosen.length)return;let path='/do/'+what;

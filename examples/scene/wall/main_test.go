@@ -1189,6 +1189,8 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
 		// The extras: a button each, for every page open on the wall.
 		`<div id="xtras"></div>`, "fetch('/extra/'+encodeURIComponent(x),{method:'POST'})", "extrasTick(sh);", "<b>extras</b>",
+		// Choosing puts cfg's buttons away, and cfg says how many are chosen.
+		"choose(i,painting);tools();cfg(false);});", "$('cfg').innerHTML='cfg'+(sel.size?' <b>'+sel.size+'</b>':'');", "Choosing a tile puts cfg's buttons away",
 		// The picture fits the window; clones are rows below it at its size.
 		"h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3", "Clones take rows below the picture at the picture's own size",
 		"seven minutes", "two and a half minutes after every two scenes",

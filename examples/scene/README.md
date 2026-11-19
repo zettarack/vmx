@@ -61,7 +61,9 @@ with a flash: the change crosses the wall from machine to machine.
 Under the wall, **cfg** opens the page's buttons, over the foot of the
 wall so nothing moves: **Before**, **Hold**,
 **Next** and one for each family, which move the show for every tile and
-every page open on it, and the tiles' own. **Text off** beside it takes
+every page open on it, and the tiles' own. Choosing a tile puts the
+buttons away, so the rows under them can be chosen too; **cfg**, the
+count of tiles chosen beside it, brings them back. **Text off** beside it takes
 the page's own text away (the title, the lines above the wall, every
 tile's name and its disk and volume counts), so the demo shows alone;
 the words a scene writes are part of the picture and stay. **Text on**
@@ -204,7 +206,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:16`, `scene-agent:16-green` and `scene-wall:25`, the
+archives, `scene-agent:16`, `scene-agent:16-green` and `scene-wall:26`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -227,10 +229,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
 podman build -f Containerfile.agent -t scene-agent:16 .
 podman build -f Containerfile.green -t scene-agent:16-green .
-podman build -f Containerfile.wall -t scene-wall:25 .
+podman build -f Containerfile.wall -t scene-wall:26 .
 podman save --format oci-archive -o scene-agent.tar scene-agent:16
 podman save --format oci-archive -o scene-agent-green.tar scene-agent:16-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:25
+podman save --format oci-archive -o scene-wall.tar scene-wall:26
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -244,7 +246,7 @@ above.
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:16 \
 NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:16-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:25 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:26 \
 ./05-demoscene-wall.sh
 ```
 
