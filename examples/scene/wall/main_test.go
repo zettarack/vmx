@@ -850,17 +850,18 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 // page says of a verb in hand is in the legend; and every picture in it
 // has its look's swatch.
 // The info opens with what the wall is and why it is built so, before how
-// to drive it: what you are looking at, how it is put together, why build
-// it this way and where the same shape fits, then the show and the rest
-// (the operator, 2026-11-18: "this part needs to be at the top of the
-// info").
+// to drive it: what you are looking at, what vmx gives you, how it is put
+// together, why build it this way and where the same shape fits, then the
+// show and the rest (the operator, 2026-11-18: "this part needs to be at
+// the top of the info", then "abslutly EVERYTHING is a dataset ... yes k8s
+// works and kbx is for nodes").
 func TestTheInfoOpensWithWhatItIsAndWhy(t *testing.T) {
 	w := httptest.NewRecorder()
 	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
 	page := w.Body.String()
 	info := page[strings.Index(page, `<div id="info" hidden>`):]
 	heads := regexp.MustCompile(`<h2>([^<]*)</h2>`).FindAllStringSubmatch(info, -1)
-	want := []string{"What you are looking at", "How it is put together", "Why build it this way", "Where the same shape fits", "The show"}
+	want := []string{"What you are looking at", "What vmx gives you", "How it is put together", "Why build it this way", "Where the same shape fits", "The show"}
 	for i, h := range want {
 		if i >= len(heads) || heads[i][1] != h {
 			t.Fatalf("the info's heads begin %v, want %v", heads[:min(len(heads), len(want))], want)
@@ -1212,7 +1213,9 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		"choose(i,painting);tools();cfg(false);});", "$('cfg').innerHTML='cfg'+(sel.size?' <b>'+sel.size+'</b>':'');", "Choosing a tile puts cfg's buttons away",
 		// The picture fits the window; clones are rows below it at its size.
 		"h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3", "Clones take rows below the picture at the picture's own size",
-		"seven minutes", "two and a half minutes after every two scenes",
+		"seven minutes", "three minutes after every two scenes",
+		// What vmx gives you, each as true as vmx's own pages say it.
+		"Absolutely everything is a dataset.", "Blue and green, at every level.", "Kubernetes? Yes.", "kbx is in alpha, on the beta line.",
 	} {
 		if !strings.Contains(page, said) {
 			t.Errorf("the page does not have %q", said)

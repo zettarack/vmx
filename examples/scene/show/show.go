@@ -5,7 +5,7 @@
 //
 // A scene plays seven minutes. The vmx intro, the wordmark with its
 // scroller of what vmx does, opens the show and comes back after every
-// two scenes, two and a half minutes each time; between, the families of
+// two scenes, three minutes each time; between, the families of
 // the rotation each play once a round, in an order of the round's own and with a seed of their own: a
 // landscape at dawn in one round, a canyon by moonlight in the next. A tile
 // changes part at its own moment, the top left first, with a flash, so the
@@ -27,7 +27,7 @@ import (
 // SceneLen is how long a scene plays, IntroLen the vmx intro, in seconds.
 const (
 	SceneLen = 420.0
-	IntroLen = 150.0
+	IntroLen = 180.0
 )
 
 // logoEvery: the intro is every third part, the first among them.

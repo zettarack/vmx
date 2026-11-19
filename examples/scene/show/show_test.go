@@ -236,7 +236,7 @@ func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {
 // a half; every part starts where the one before it ends; and the part at
 // any moment is the one whose span holds it.
 func TestThePartsTakeTheirTimes(t *testing.T) {
-	if LenOf(0) != 150 || LenOf(1) != 420 || LenOf(2) != 420 || LenOf(3) != 150 {
+	if LenOf(0) != 180 || LenOf(1) != 420 || LenOf(2) != 420 || LenOf(3) != 180 {
 		t.Fatalf("lengths: %v %v %v %v", LenOf(0), LenOf(1), LenOf(2), LenOf(3))
 	}
 	for p := int64(0); p < 60; p++ {
