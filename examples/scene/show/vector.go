@@ -5,7 +5,7 @@ import "math"
 // vector is a drive across a plain drawn the way the old vector screens
 // drew: lines of light on black, a glow round each, every edge of every
 // shape seen. Faint crosses mark the ground; blocks and pyramids stand on
-// the plain, a range of mountains
+// the plain, a helicopter circles ahead, a range of mountains
 // runs round the horizon with a moon over it, a few wireframe rovers roam
 // among the blocks, and now and then a saucer crosses. The camera drives
 // on, swinging slowly from side to side.
@@ -54,6 +54,12 @@ type cam struct {
 	eye  vec3
 	r, f vec3
 	yaw  float64
+}
+
+// cameraVel is how fast the camera moves across, ahead, and its height.
+func (vc *vector) cameraVel(t float64) (float64, float64, float64) {
+	const w = 0.11
+	return vc.sway * w * math.Cos(t*w), vc.speed, 0
 }
 
 func (vc *vector) camera(t float64) cam {
@@ -192,6 +198,46 @@ func rover(at vec3, yaw, k float64) [][2]vec3 {
 	return e
 }
 
+// heli is a wireframe helicopter of the scene's own, heading yaw, k times
+// its own size, its rotors at angle spin: a cabin with a sloped
+// windscreen, a boom tapering to a fin, a tail rotor, the main rotor's
+// two blades on their mast, and skids on struts.
+func heli(at vec3, yaw, spin, k float64) [][2]vec3 {
+	s, c := math.Sincos(yaw)
+	pt := func(x, y, z float64) vec3 {
+		x, y, z = x*k, y*k, z*k
+		return v3(at.x+x*c+z*s, at.y+y, at.z-x*s+z*c)
+	}
+	cab := []vec3{
+		pt(-0.6, 0.1, -1.0), pt(0.6, 0.1, -1.0), pt(0.6, 0.1, 1.4), pt(-0.6, 0.1, 1.4),
+		pt(-0.5, 1.0, -0.9), pt(0.5, 1.0, -0.9), pt(0.5, 1.0, 0.5), pt(-0.5, 1.0, 0.5),
+	}
+	var e [][2]vec3
+	for i := 0; i < 4; i++ {
+		e = append(e, [2]vec3{cab[i], cab[(i+1)%4]}, [2]vec3{cab[4+i], cab[4+(i+1)%4]}, [2]vec3{cab[i], cab[4+i]})
+	}
+	// The boom, narrowing to the fin.
+	e = append(e, [2]vec3{pt(0, 0.8, -0.9), pt(0, 0.95, -4.2)}, [2]vec3{pt(0, 0.35, -0.9), pt(0, 0.8, -4.0)},
+		[2]vec3{pt(0, 0.95, -4.2), pt(0, 0.8, -4.0)})
+	e = append(e, [2]vec3{pt(0, 0.95, -4.2), pt(0, 1.8, -4.6)}, [2]vec3{pt(0, 1.8, -4.6), pt(0, 1.6, -3.9)}, [2]vec3{pt(0, 1.6, -3.9), pt(0, 0.95, -3.7)})
+	// The tail rotor turns across the boom, faster than the main one.
+	ts, tc := math.Sincos(spin * 2.7)
+	e = append(e, [2]vec3{pt(0.15, 1.25+0.55*tc, -4.35+0.55*ts), pt(0.15, 1.25-0.55*tc, -4.35-0.55*ts)})
+	// The mast and the main rotor's two blades.
+	hub := pt(0, 1.3, -0.2)
+	e = append(e, [2]vec3{pt(0, 1.0, -0.2), hub})
+	ms, mc := math.Sincos(spin)
+	for _, d := range [][2]float64{{mc, ms}, {-ms, mc}} {
+		e = append(e, [2]vec3{pt(-2.6*d[0], 1.3, -0.2-2.6*d[1]), pt(2.6*d[0], 1.3, -0.2+2.6*d[1])})
+	}
+	// Skids on struts, turned up at the front.
+	for _, x := range []float64{-0.75, 0.75} {
+		e = append(e, [2]vec3{pt(x, -0.35, -0.9), pt(x, -0.35, 1.3)}, [2]vec3{pt(x, -0.35, 1.3), pt(x, -0.1, 1.6)},
+			[2]vec3{pt(x*0.7, 0.1, -0.4), pt(x, -0.35, -0.4)}, [2]vec3{pt(x*0.7, 0.1, 0.8), pt(x, -0.35, 0.8)})
+	}
+	return e
+}
+
 // saucer is two shallow cones rim to rim.
 func saucer(at vec3, r, spin float64) [][2]vec3 {
 	const n = 10
@@ -290,6 +336,20 @@ func (vc *vector) frame(v *view, t float64) {
 		dz := vc.speed - 6*0.17*math.Sin(t*0.17+fr*1.3)
 		for _, e := range rover(v3(x, 0, z), math.Atan2(dx, dz), 1.5) {
 			vc.edge(v, &c, e[0], e[1], 1.2)
+		}
+	}
+	// The helicopter, circling a point that keeps ahead of the camera, so
+	// it crosses the view side on, rising and sinking a little.
+	{
+		const orbit, turn = 10.0, 0.24
+		a := t*turn + float64(vc.seed%7)
+		sa, ca := math.Sincos(a)
+		hx, hz := c.eye.x+orbit*ca, c.eye.z+24+orbit*sa
+		hy := 4 + 1.2*math.Sin(t*0.37)
+		cx, _, _ := vc.cameraVel(t)
+		dx, dz := -orbit*turn*sa+cx, orbit*turn*ca+vc.speed
+		for _, e := range heli(v3(hx, hy, hz), math.Atan2(dx, dz), t*17, 1.6) {
+			vc.edge(v, &c, e[0], e[1], 1.3)
 		}
 	}
 	// A saucer crossing, now and then.
