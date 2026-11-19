@@ -131,6 +131,7 @@ var rotation = []family{
 	{"julia", newJulia},
 	{"blackhole", newBlackhole},
 	{"plasma", newPlasma},
+	{"cube", newCube},
 }
 
 // PartName is the name of the family part p plays, for a log or a page.

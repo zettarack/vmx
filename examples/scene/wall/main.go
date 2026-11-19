@@ -1135,9 +1135,28 @@ button:disabled{opacity:.35;cursor:default}
 <div id="info" hidden>
 <h2>What you are looking at</h2>
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
+<h2>How it is put together</h2>
+<p>This runs on a vmx host. Each image is pulled once, or imported from an archive, by its digest, and unpacked onto a ZFS volume kept as its golden. Every container is a ZFS clone of that golden, so a new one copies nothing and takes no space until it writes. It boots in a Firecracker microVM, confined by Firecracker's jailer, running its own copy of the kernel the host runs, with a small init that starts the image's program. The tiles talk to the wall on the host's private network, each with its address the moment it asks; the wall's port is forwarded from the host, which is how this page reaches you.</p>
+<h2>Why build it this way</h2>
+<ul>
+<li><b>A kernel each.</b> A crash, a kernel bug or a runaway program in one tile stays in that tile. Containers that share one kernel cannot promise that.</li>
+<li><b>Nothing is fixed in place.</b> A tile that misbehaves is thrown away and a new one made from the same golden, so repairing a tile and starting a new one are the same act.</li>
+<li><b>Identical by construction.</b> Every tile runs the same image, named by its digest, so a replacement is the same bytes as the one it replaced.</li>
+<li><b>Cheap to keep and to throw away.</b> A snapshot is a moment, a restore a reboot, a clone copies nothing, and each rebuilt tile shows how long it was away.</li>
+<li><b>The host decides.</b> The page and the containers can only ask; what runs is chosen on the host.</li>
+</ul>
+<h2>Where the same shape fits</h2>
+<ul>
+<li>A render or batch farm: one job cut into pieces, each piece handled by a copy of one program, such as the frames of a film, the tiles of a map or the chunks of a dataset.</li>
+<li>CI runners: each build in a microVM of its own, thrown away after it, so nothing one job leaves behind reaches the next.</li>
+<li>Code you did not write, such as plugins, customers' scripts or code an AI agent wrote, each run behind its own kernel.</li>
+<li>One service scaled out: many copies of one web or API program, any one of them replaced while the others keep serving.</li>
+<li>A sandbox each: a lab machine per student, a game server per match, a preview per pull request.</li>
+<li>Practising failure: kill pieces on purpose and watch the rest carry on, as here.</li>
+</ul>
 <h2>The show</h2>
-<p>Ten families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark with zettarack.com under it and a scroller of what vmx does), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole and a plasma. The intro opens the show and plays two and a half minutes after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. Choosing a tile puts cfg's buttons away, so the rows under them can be chosen too; <b>cfg</b>, the count of tiles chosen beside it, brings them back. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
+<p>Eleven families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark with zettarack.com under it and a scroller of what vmx does), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole, a plasma, and a cube of nodes under attack that grows back every node it loses. The intro opens the show and plays two and a half minutes after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. Choosing a tile puts cfg's buttons away, so the rows under them can be chosen too; <b>cfg</b>, the count of tiles chosen beside it, brings them back. The keys do the same: the left and right arrows, space, and 1 to 0 and - for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1193,25 +1212,6 @@ button:disabled{opacity:.35;cursor:default}
 <p>What the host holds of the wall, as the keeper reads it from the host every few seconds: how many of its microVMs run, the memory they take (each microVM's resident memory on the host), and their disks counted two ways: as full copies would take them, and as ZFS keeps them, each tile's own changes and the image they all share counted once; then their volumes, as ZFS keeps them, which is mostly the room it sets aside for each, written to or not. Each tile shows the disk it holds of its own beside its name.</p>
 <h2>Who does it</h2>
 <p>The page cannot do any of that by itself, and that is the point: it is a program in a container, and nothing in a container commands the host. A button only leaves a request on the wall. The keeper, a small loop on the host (<code>05-demoscene-wall.sh</code>, running as the service <code>demoscene-keeper</code>), asks the wall what was asked, does it with the <code>vmx</code> command and says what became of it, which the tile shows. It also runs again any tile that is gone or stopped, however it went. Every tile sends an id made when its program starts, so the wall can tell a new machine from the old one. With no keeper watching, a request waits, and the page says so. The same requests can come from a script: <code>05-demoscene-wall.sh --show</code> presses the buttons in a fixed order, each step waited out, for a recording.</p>
-<h2>How it is put together</h2>
-<p>This runs on a vmx host. Each image is pulled once, or imported from an archive, by its digest, and unpacked onto a ZFS volume kept as its golden. Every container is a ZFS clone of that golden, so a new one copies nothing and takes no space until it writes. It boots in a Firecracker microVM, confined by Firecracker's jailer, running its own copy of the kernel the host runs, with a small init that starts the image's program. The tiles talk to the wall on the host's private network, each with its address the moment it asks; the wall's port is forwarded from the host, which is how this page reaches you.</p>
-<h2>Why build it this way</h2>
-<ul>
-<li><b>A kernel each.</b> A crash, a kernel bug or a runaway program in one tile stays in that tile. Containers that share one kernel cannot promise that.</li>
-<li><b>Nothing is fixed in place.</b> A tile that misbehaves is thrown away and a new one made from the same golden, so repairing a tile and starting a new one are the same act.</li>
-<li><b>Identical by construction.</b> Every tile runs the same image, named by its digest, so a replacement is the same bytes as the one it replaced.</li>
-<li><b>Cheap to keep and to throw away.</b> A snapshot is a moment, a restore a reboot, a clone copies nothing, and each rebuilt tile shows how long it was away.</li>
-<li><b>The host decides.</b> The page and the containers can only ask; what runs is chosen on the host.</li>
-</ul>
-<h2>Where the same shape fits</h2>
-<ul>
-<li>A render or batch farm: one job cut into pieces, each piece handled by a copy of one program, such as the frames of a film, the tiles of a map or the chunks of a dataset.</li>
-<li>CI runners: each build in a microVM of its own, thrown away after it, so nothing one job leaves behind reaches the next.</li>
-<li>Code you did not write, such as plugins, customers' scripts or code an AI agent wrote, each run behind its own kernel.</li>
-<li>One service scaled out: many copies of one web or API program, any one of them replaced while the others keep serving.</li>
-<li>A sandbox each: a lab machine per student, a game server per match, a preview per pull request.</li>
-<li>Practising failure: kill pieces on purpose and watch the rest carry on, as here.</li>
-</ul>
 </div>
 <script>
 const n=COLS*ROWS,$=id=>document.getElementById(id),wall=$('wall'),tiles=[],sel=new Set();
@@ -1334,13 +1334,15 @@ if(location.hash==='#cfg')cfg(true);
 function fit(){wall.style.zoom='';const w=wall.offsetWidth,h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
 const k=Math.max(0.25,Math.min((innerWidth-24)/w,room/h));wall.style.zoom=String(Math.round(k*1000)/1000);}
 addEventListener('resize',fit);new ResizeObserver(fit).observe($('dock'));
+// keys are the families' keys, in the order shown: 1 to 0, then -.
+const keys='1234567890-';
 let fams=[],xall=[];
 // The extras: a button each, lit while on, the wall's for every page.
 function extrasTick(sh){if(!sh.all_extras)return;
 if(xall.join()!==sh.all_extras.join()){xall=sh.all_extras;const head=document.createElement('span');head.textContent='extras';$('xtras').replaceChildren(head,...xall.map(x=>{const b=document.createElement('button');b.dataset.x=x;b.textContent=x;b.title=x+', laid over every scene, on or off';b.onclick=()=>fetch('/extra/'+encodeURIComponent(x),{method:'POST'});return b;}));}
 const on=new Set(sh.extras||[]);document.querySelectorAll('#xtras button').forEach(b=>b.classList.toggle('on',on.has(b.dataset.x)));}
 function showTick(sh){if(!sh)return;extrasTick(sh);
-if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=String((k+1)%10);b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+' (key '+key+')';b.onclick=()=>showTo(f);return b;}));}
+if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=keys[k]||'';b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+' (key '+key+')';b.onclick=()=>showTo(f);return b;}));}
 document.querySelectorAll('#fams button').forEach(b=>b.classList.toggle('on',b.dataset.f===sh.family));
 const s=Math.floor(sh.in_s);$('part').innerHTML='part <b>'+sh.part+'</b> &middot; <b>'+sh.family+'</b> &middot; '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+(sh.held?' &middot; <b>held</b>':'');
 $('hold').classList.toggle('on',sh.held);$('hold').textContent=sh.held?'Run':'Hold';
@@ -1350,7 +1352,7 @@ document.addEventListener('keydown',e=>{
 if(e.key==='Escape'){if(!info.hidden)showInfo(false);else if(!panel.hidden)cfg(false);else $('none').onclick();return;}
 if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest?.('input,textarea,select'))return;
 if(e.key==='ArrowRight')showTo('next');else if(e.key==='ArrowLeft')showTo('before');else if(e.key===' ')showTo('hold');else if(e.key==='t')showTo('text');else if(e.key==='c')cfg(panel.hidden);
-else if(/^[0-9]$/.test(e.key)&&fams[(+e.key+9)%10])showTo(fams[(+e.key+9)%10]);else return;
+else if(e.key.length===1&&keys.includes(e.key)&&fams[keys.indexOf(e.key)])showTo(fams[keys.indexOf(e.key)]);else return;
 e.preventDefault();});
 // The legend's tiles in the info: each picture is a swatch of its look's
 // colours, sampled from the tile program's own ramps (show/show.go, paint).

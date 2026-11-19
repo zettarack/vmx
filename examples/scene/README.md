@@ -38,7 +38,7 @@ runs as containers on a vmx host, and the package the tiles draw with:
 
 `show/` is what the tiles draw: an hour of scenes, from the show's clock
 alone, so forty tiles that each draw their own square agree on one
-picture without a word between them. Ten families, each played for seven
+picture without a word between them. Eleven families, each played for seven
 minutes with a seed of its own, so a landscape at dawn comes back as a
 canyon by moonlight:
 
@@ -54,6 +54,7 @@ canyon by moonlight:
 | julia | a Julia set changing shape as its constant goes round |
 | blackhole | a black hole and its disk of gas, drawn as the light comes: each ray bent by the hole on its way, so the disk's far side shows over the hole and under it, the stars and the galaxy behind are drawn round it into rings, and the side of the gas coming toward the eye burns brighter; on some parts jets from the poles; the eye goes round it, rising over the disk and coming in close by the part's middle |
 | plasma | the old plasma, or a liquid one |
+| cube | a ship that is a cube of cells, its nodes, under attack: fighters circle it and fire at the face that looks their way; a cell hit flashes and goes, its hole showing the cube's core, and grows back from the core on a beam; in the corner, the nodes whole and the nodes recloned since the part began |
 
 When a part ends, each tile changes at its own turn, the top left first,
 with a flash: the change crosses the wall from machine to machine.
@@ -71,7 +72,7 @@ brings it back (the lines above the wall keep their room, so the wall
 stays where it is); with it on, the tiles' names and counts fade six seconds
 after the mouse or the keys last moved, and come back with the next move
 (they stay while cfg is open or a tile is chosen). The keys do the same: the left and right arrows, space, c, t,
-and 1 to 0 for the families in the order shown. The wall keeps the show's clock and hands it to the
+and 1 to 0 and - for the families in the order shown. The wall keeps the show's clock and hands it to the
 tiles with each frame (`show`; `cut_part` for a part the controls moved
 to, which every tile shows at once); a tile from before the
 controls draws its old picture by the wall's time, and a wall from before
@@ -136,8 +137,8 @@ wall do their verb to every tile chosen, at once:
 | **Snapshot** | its disk and its volume as they are now, at one moment, in one zfs call (`vmx container snapshot`) |
 | **Restore** | its disk and its volume put back to its newest snapshot together: the microVM stopped, both returned and booted again, in under a second; both counts in its corner go back to what they were (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so. With one tile chosen, its snapshots are listed under the buttons, oldest first: a press on one restores the tile to that one, and the snapshots newer than it go with it |
 | **Rebuild** | its microVM and its disk destroyed and a new one booted from the image on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine, its snapshots with the old one; the tile says how long it was away. An empty place gets a tile again |
-| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:16-green` (the same program, drawing in green where the first draws in blue: a new version), on the same volume, eight at a time over the wall while the rest draw, so green rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. A tile on the new version already says so. A rolling update: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced |
-| **Roll back** | the same, back to the first image, `scene-agent:16`: green to blue, eight at a time. It changes the program and keeps the data (the volume's count goes on); Restore is the other way back, the data to a snapshot with the program kept. A tile on the first version says there is nothing to roll back to |
+| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:17-green` (the same program, drawing in green where the first draws in blue: a new version), on the same volume, eight at a time over the wall while the rest draw, so green rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. A tile on the new version already says so. A rolling update: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced |
+| **Roll back** | the same, back to the first image, `scene-agent:17`: green to blue, eight at a time. It changes the program and keeps the data (the volume's count goes on); Restore is the other way back, the data to a snapshot with the program kept. A tile on the first version says there is nothing to roll back to |
 | **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk and its volume as they were; the tile says how long its place was without a picture |
 | **Clone** N | as many new microVMs from its disk and its volume as they are, at one moment, as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, its volume one too (vmx names the copy NEW-VOLUME), so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the counts it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
 | **Remove** | the tile taken away with its volume and their snapshots; its place stays empty. A tile a clone stands on is not removed until the clone is, and a volume a clone's copy stands on stays until the copy goes: the keeper takes it away then |
@@ -206,7 +207,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:16`, `scene-agent:16-green` and `scene-wall:26`, the
+archives, `scene-agent:17`, `scene-agent:17-green` and `scene-wall:27`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -227,12 +228,12 @@ On any machine with Go and Podman (or Docker):
 cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:16 .
-podman build -f Containerfile.green -t scene-agent:16-green .
-podman build -f Containerfile.wall -t scene-wall:26 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:16
-podman save --format oci-archive -o scene-agent-green.tar scene-agent:16-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:26
+podman build -f Containerfile.agent -t scene-agent:17 .
+podman build -f Containerfile.green -t scene-agent:17-green .
+podman build -f Containerfile.wall -t scene-wall:27 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:17
+podman save --format oci-archive -o scene-agent-green.tar scene-agent:17-green
+podman save --format oci-archive -o scene-wall.tar scene-wall:27
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -244,9 +245,9 @@ of their own (the build stamps its time in them): name them, as printed
 above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:16 \
-NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:16-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:26 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:17 \
+NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:17-green \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:27 \
 ./05-demoscene-wall.sh
 ```
 

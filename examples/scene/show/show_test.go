@@ -40,7 +40,7 @@ func TestTheScheduleKeepsItsPromises(t *testing.T) {
 
 func TestFamiliesAndNextOf(t *testing.T) {
 	f := Families()
-	if len(f) != 10 || f[0] != "vmx" {
+	if len(f) != 11 || f[0] != "vmx" {
 		t.Fatalf("families: %v", f)
 	}
 	seen := map[string]bool{}
@@ -334,5 +334,64 @@ func TestTheIntroScrollsEveryFeatureWhileTheWordHolds(t *testing.T) {
 	}
 	if differ < 2000 {
 		t.Errorf("the line drew %d pixels", differ)
+	}
+}
+
+// A cell of the cube that a bolt is fired at is aimed at while the bolt
+// flies, flashes when it lands, is gone for its hold, grows back over
+// growFor and is whole again, glowing; and the count of cells grown back
+// since the part began goes up as it is whole. The shot is one whose cell
+// no other shot touches from a story before it to a story after.
+func TestTheCubesCellsGoAndGrowBack(t *testing.T) {
+	c := newCube(11, &view{pw: 1280, ph: 600}).(*cube)
+	var s shot
+	found := false
+	var shots []shot
+	for at := storyFor * 2; at < 300 && len(shots) < 40; at += storyFor {
+		c.state(at)
+		shots = append(shots, c.shots...)
+	}
+	for _, a := range shots {
+		alone := true
+		for _, at := range []float64{a.land, a.land + storyFor} {
+			c.state(at)
+			for _, b := range c.shots {
+				if b.cell == a.cell && b.land != a.land {
+					alone = false
+				}
+			}
+		}
+		if alone {
+			s, found = a, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("no shot alone on its cell before 300 s")
+	}
+	end := s.land + hitFor + s.hold + growFor
+	for _, w := range []struct {
+		at    float64
+		state int
+	}{
+		{s.fire + 0.05, cellAimed},
+		{s.land + 0.05, cellHit},
+		{s.land + hitFor + 0.05, cellGone},
+		{s.land + hitFor + s.hold - 0.05, cellGone},
+		{s.land + hitFor + s.hold + 0.05, cellGrowing},
+		{end + 0.05, cellOK},
+		{s.fire - 0.05, cellOK},
+	} {
+		c.state(w.at)
+		if got := c.cells[s.cell].state; got != w.state {
+			t.Errorf("at %.2f s (the bolt fired %.2f, landed %.2f, held %.2f) the cell is %d, want %d", w.at, s.fire, s.land, s.hold, got, w.state)
+		}
+	}
+	c.state(end + 0.05)
+	if k := c.cells[s.cell].k; k < 0.9 {
+		t.Errorf("just grown back, the cell glows %.2f", k)
+	}
+	if before, after := c.state(end-0.02), c.state(end+0.02); after < before+1 {
+		t.Errorf("grown back: %d before the cell is whole, %d after", before, after)
 	}
 }

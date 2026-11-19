@@ -849,6 +849,25 @@ func TestTheInfoSaysWhatTheWallDoes(t *testing.T) {
 // coming, new, said, up, not drawing and no picture yet; every word the
 // page says of a verb in hand is in the legend; and every picture in it
 // has its look's swatch.
+// The info opens with what the wall is and why it is built so, before how
+// to drive it: what you are looking at, how it is put together, why build
+// it this way and where the same shape fits, then the show and the rest
+// (the operator, 2026-11-18: "this part needs to be at the top of the
+// info").
+func TestTheInfoOpensWithWhatItIsAndWhy(t *testing.T) {
+	w := httptest.NewRecorder()
+	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	info := page[strings.Index(page, `<div id="info" hidden>`):]
+	heads := regexp.MustCompile(`<h2>([^<]*)</h2>`).FindAllStringSubmatch(info, -1)
+	want := []string{"What you are looking at", "How it is put together", "Why build it this way", "Where the same shape fits", "The show"}
+	for i, h := range want {
+		if i >= len(heads) || heads[i][1] != h {
+			t.Fatalf("the info's heads begin %v, want %v", heads[:min(len(heads), len(want))], want)
+		}
+	}
+}
+
 func TestTheInfosLegendShowsEveryStateOfATile(t *testing.T) {
 	w := httptest.NewRecorder()
 	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
@@ -1104,7 +1123,7 @@ func frameOf(t *testing.T, s *wall) frameDoc {
 // word that is none of these is refused with nothing changed.
 func TestTheShowsControlsMoveItsClockAndTheTilesAreTold(t *testing.T) {
 	s := fourTiles()
-	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "vmx" || sh.Held || len(sh.Families) != 10 || sh.Families[0] != "vmx" {
+	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "vmx" || sh.Held || len(sh.Families) != 11 || sh.Families[0] != "vmx" {
 		t.Fatalf("a new wall's show: %+v", sh)
 	}
 	if c := ask(t, s, "POST", "/show/next", ""); c != http.StatusNoContent {
@@ -1173,7 +1192,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 	page := w.Body.String()
 	for _, said := range []string{
 		`<button id="before"`, `<button id="hold"`, `<button id="next"`, `<span id="fams">`,
-		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, and 1 to 0",
+		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, and 1 to 0 and -", "const keys='1234567890-';", "key=keys[k]||'';", "showTo(fams[keys.indexOf(e.key)])",
 		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
 		// Text off takes all the text away: the tiles' names and counts and
 		// the lines above the wall, as well as the line in the picture.
@@ -1199,7 +1218,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 			t.Errorf("the page does not have %q", said)
 		}
 	}
-	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "black hole", "plasma"} {
+	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "black hole", "plasma", "cube of nodes"} {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
 		}
