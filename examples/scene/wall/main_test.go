@@ -1170,7 +1170,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
 		// Text off takes all the text away: the tiles' names and counts and
 		// the lines above the wall, as well as the line in the picture.
-		"body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t b{display:none}", "document.body.classList.toggle('quiet',sh.text===false);", "takes all the text away",
+		"body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t b{display:none}", "document.body.classList.toggle('quiet',sh.text===false);", "takes the page's own text away", "the words a scene writes are part of the picture and stay",
 		// The buttons fold into cfg under the wall, closed at first.
 		`<div id="panel" hidden>`, `<button id="cfg"`, "<b>cfg</b>", "else if(e.key==='c')cfg(panel.hidden);", "else if(!panel.hidden)cfg(false);",
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
@@ -1186,22 +1186,21 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 	}
 }
 
-type quietDoc struct {
-	Quiet bool `json:"quiet"`
-}
-
-// The page's Text turns the scrollers' text off for every tile, by the
-// frame they are handed, and on again; the state says which.
-func TestTheTextIsTurnedOffAndOnForEveryTile(t *testing.T) {
+// The page's Text is the page's own text alone (its title, its lines, the
+// tiles' names and counts), off and on for every page open on the wall,
+// as the state says: the tiles' frames carry nothing of it, since the
+// words a scene writes are the picture's and stay.
+func TestTextOffIsThePagesOwnTextAndTheTilesAreNotTold(t *testing.T) {
 	s := fourTiles()
-	quiet := func() bool {
+	frameHasQuiet := func() bool {
 		w := httptest.NewRecorder()
 		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/frame", nil))
-		var q quietDoc
-		if err := json.Unmarshal(w.Body.Bytes(), &q); err != nil {
+		var f map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &f); err != nil {
 			t.Fatalf("frame: %v: %s", err, w.Body.String())
 		}
-		return q.Quiet
+		_, has := f["quiet"]
+		return has
 	}
 	text := func() bool {
 		w := httptest.NewRecorder()
@@ -1216,21 +1215,52 @@ func TestTheTextIsTurnedOffAndOnForEveryTile(t *testing.T) {
 		}
 		return *d.Show.Text
 	}
-	if quiet() || !text() {
+	if !text() {
 		t.Fatal("a new wall's text is off")
 	}
 	before := showOf(t, s).Part
 	if c := ask(t, s, "POST", "/show/text", ""); c != http.StatusNoContent {
 		t.Fatalf("text: %d", c)
 	}
-	if !quiet() || text() {
-		t.Error("Text off: the tiles are not told, or the state says it is on")
+	if text() {
+		t.Error("Text off: the state says the text is on")
+	}
+	if frameHasQuiet() {
+		t.Error("Text off is told to the tiles: the scenes' own words would go")
 	}
 	if showOf(t, s).Part != before {
 		t.Error("Text off moved the show")
 	}
 	ask(t, s, "POST", "/show/text", "")
-	if quiet() || !text() {
-		t.Error("Text on again: the tiles are still told it is off")
+	if !text() {
+		t.Error("Text on again: the state still says off")
+	}
+}
+
+// A page knows the wall that served it: the page carries the wall's own
+// id and the state says it, and another wall (one swapped in, or made
+// again) has another, so a page left open on the old one reloads.
+func TestAPageServedByAnotherWallReloads(t *testing.T) {
+	a := newWall(2, 2, 16, 16, time.Now())
+	b := newWall(2, 2, 16, 16, time.Now().Add(time.Millisecond))
+	if a.pageID == "" || a.pageID == b.pageID {
+		t.Fatalf("two walls' ids: %q and %q", a.pageID, b.pageID)
+	}
+	w := httptest.NewRecorder()
+	a.routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	if !strings.Contains(page, "if(s.page&&s.page!=='"+a.pageID+"'){location.reload();return;}") {
+		t.Error("the page does not reload for another wall's state")
+	}
+	if strings.Contains(page, "PAGEID") {
+		t.Error("the page's id was left unreplaced")
+	}
+	w = httptest.NewRecorder()
+	a.routes().ServeHTTP(w, httptest.NewRequest("GET", "/state", nil))
+	var d struct {
+		Page string `json:"page"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil || d.Page != a.pageID {
+		t.Errorf("the state's page: %q (%v), want %q", d.Page, err, a.pageID)
 	}
 }

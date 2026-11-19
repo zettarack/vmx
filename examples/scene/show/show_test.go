@@ -176,34 +176,6 @@ func TestEveryFactIsInTheFont(t *testing.T) {
 	}
 }
 
-// With the page's text off, the wordmark's part draws the same wordmark
-// and no line of text: some tile differs (the one the line crosses), and
-// the tiles still draw.
-func TestTheTextCanBeTurnedOff(t *testing.T) {
-	// The line has just come on (it starts at 11 s from the right edge):
-	// in the test's small picture it has gone by long before 30 s.
-	at := 12.5
-	differ, drawn := 0, 0
-	for place := 0; place < 12; place++ {
-		on := new(Show).Render(place, frameAt(at), "classic")
-		f := frameAt(at)
-		f.Quiet = true
-		off := new(Show).Render(place, f, "classic")
-		if !bytes.Equal(on.Pix, off.Pix) {
-			differ++
-		}
-		if litPixels(off) > 0 {
-			drawn++
-		}
-	}
-	if differ == 0 {
-		t.Error("the text off changed no tile")
-	}
-	if drawn < 6 {
-		t.Errorf("with the text off %d of 12 tiles drew anything", drawn)
-	}
-}
-
 // The wordmark and its tagline have a glyph for every character, and
 // draw: no letter of either is blank.
 func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {

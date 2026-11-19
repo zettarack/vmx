@@ -138,8 +138,9 @@ func (lg *logo) frame(v *view, t float64) {
 		v.stamp(&digits[d], cx-dw/2, cy-dh/2, ds, col.add(gray(0.25*light)))
 	}
 	// Under the word, once it has landed, the site typed out, a cursor
-	// blinking after it; it goes with the word. Text off takes it away.
-	if !v.quiet && t > 8.5 && t < 50.5 {
+	// blinking after it; it goes with the word. It is the picture's, as
+	// every word a scene writes is: the page's Text off leaves it.
+	if t > 8.5 && t < 50.5 {
 		fade := smooth(50.5, 49.5, t)
 		n := min(len(tagline), int((t-8.5)/0.12)+1)
 		for i := 0; i < n; i++ {

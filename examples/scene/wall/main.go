@@ -200,8 +200,13 @@ type wall struct {
 	showAt   time.Time
 	showHeld bool
 	cut      int64
-	// quiet: the page's text is off, and the tiles' scrollers say nothing.
+	// quiet: the page's own text is off (its title, the lines above the
+	// wall, every tile's name and counts), for every page open on the wall;
+	// the words a scene writes are the picture's and stay.
 	quiet bool
+	// pageID is this wall's own id, made when it starts: a page served by
+	// another wall (one swapped in since, or made again) reloads itself.
+	pageID string
 }
 
 // showNow is the show's clock at now. s.mu is held.
@@ -267,7 +272,7 @@ func newWall(cols, rows, w, h int, now time.Time) *wall {
 	// Seen as watched from its start, so the launch's first look at it
 	// (a frame, within two seconds) is answered at once.
 	return &wall{cols: cols, rows: rows, w: w, h: h, tiles: make([]tile, cols*rows), epoch: now, start: now,
-		viewed: now, viewFor: idleAfter, holdFor: idleHold, showAt: now}
+		viewed: now, viewFor: idleAfter, holdFor: idleHold, showAt: now, pageID: strconv.FormatInt(now.UnixNano(), 36)}
 }
 
 // clip cuts s to at most n bytes, at the start of a character.
@@ -345,11 +350,11 @@ func (s *wall) frame(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Lock()
-	at, cut, quiet := s.showNow(time.Now()), s.cut, s.quiet
+	at, cut := s.showNow(time.Now()), s.cut
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"t": time.Since(s.epoch).Seconds(), "show": at, "cut_part": cut, "quiet": quiet, "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
+		"t": time.Since(s.epoch).Seconds(), "show": at, "cut_part": cut, "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
 	}); err != nil {
 		log.Printf("frame: %v", err)
 	}
@@ -358,7 +363,7 @@ func (s *wall) frame(w http.ResponseWriter, r *http.Request) {
 // showDo is the page's controls for the show: next (the next part, from
 // its start), before (the part that plays, from its start, or within its
 // first four seconds the one before it), hold (the clock held, or let run
-// on again), text (the scrollers' text off, or on again) and a family's
+// on again), text (the page's own text off, or on again) and a family's
 // name (the next part that plays that family).
 // A move lands at a part's start and is told to the tiles as a cut. A
 // word that is none of these is refused, and nothing changes.
@@ -373,7 +378,7 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case what == "text":
 		s.quiet = !s.quiet
-		log.Printf("show: the text %s", map[bool]string{true: "off", false: "on"}[s.quiet])
+		log.Printf("show: the page's text %s", map[bool]string{true: "off", false: "on"}[s.quiet])
 		w.WriteHeader(http.StatusNoContent)
 		return
 	case what == "hold":
@@ -831,7 +836,7 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 	doc := map[string]any{"tiles": out, "live": live, "up": up, "fps": float64(n) / liveFor.Seconds(),
 		"since_s": now.Sub(s.start).Seconds(), "full_s": s.full.Seconds(), "full_n": s.fullN,
 		"replaced": s.replaced, "keeper": !s.watched.IsZero() && now.Sub(s.watched) <= keeperFor,
-		"era": s.era, "reset": s.phase, "reset_s": now.Sub(s.phaseAt).Seconds()}
+		"era": s.era, "reset": s.phase, "reset_s": now.Sub(s.phaseAt).Seconds(), "page": s.pageID}
 	if fresh {
 		doc["host"] = map[string]any{"tiles": s.host.Tiles, "memory": s.host.Memory, "copies": s.host.Copies,
 			"disk": s.host.Disk, "volumes": s.host.Volumes, "age_ms": now.Sub(s.hostAt).Milliseconds()}
@@ -947,9 +952,9 @@ func (s *wall) page(w http.ResponseWriter, _ *http.Request) {
 	s.seen(time.Now())
 	s.mu.Unlock()
 	// NTILES is the count the info text gives, MAXTILES the most a clone
-	// asks for. The page's words keep clear of the six names in capitals,
-	// which the replacer takes as its own.
-	r := strings.NewReplacer("MAXTILES", strconv.Itoa(maxTiles), "NTILES", strconv.Itoa(s.cols*s.rows), "COLS", strconv.Itoa(s.cols), "ROWS", strconv.Itoa(s.rows), "TW", strconv.Itoa(s.w), "TH", strconv.Itoa(s.h))
+	// asks for, PAGEID this wall's own id. The page's words keep clear of
+	// the seven names in capitals, which the replacer takes as its own.
+	r := strings.NewReplacer("PAGEID", s.pageID, "MAXTILES", strconv.Itoa(maxTiles), "NTILES", strconv.Itoa(s.cols*s.rows), "COLS", strconv.Itoa(s.cols), "ROWS", strconv.Itoa(s.rows), "TW", strconv.Itoa(s.w), "TH", strconv.Itoa(s.h))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := io.WriteString(w, r.Replace(page)); err != nil {
 		log.Printf("page: %v", err)
@@ -1080,7 +1085,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
 <div id="snaps"></div>
 </div>
-<div id="strip"><button id="text" title="all the text: the line in the picture, the tiles' names and counts, and the lines above the wall, off or on (t)">Text off</button><button id="cfg" aria-expanded="false" aria-controls="panel" title="the show's and the tiles' buttons, open or closed (c)">cfg</button></div>
+<div id="strip"><button id="text" title="the page's text: the title, the lines above the wall, every tile's name and counts, off or on (t); the picture's own words stay">Text off</button><button id="cfg" aria-expanded="false" aria-controls="panel" title="the show's and the tiles' buttons, open or closed (c)">cfg</button></div>
 <div id="hint"></div>
 </div>
 <div id="info" hidden>
@@ -1088,7 +1093,7 @@ button:disabled{opacity:.35;cursor:default}
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
 <p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx wordmark with zettarack.com under it, bits, land, day, space, shapes, a Mandelbrot dive, a Julia set, a tunnel and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons (the key c), and <b>Text off</b> beside it takes all the text away (the key t): the line in the picture, the tiles' names and counts, and the lines above the wall, so the picture has nothing written on it; <b>Text on</b> brings it back. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1218,6 +1223,8 @@ if(t.said)return[name+'  '+t.said,'said'];
 if(t.up_ms>0&&t.up_age_ms<10000)return[name+'  up in '+(t.up_ms/1000).toFixed(2)+' s',''];
 return[name+(mixed&&t.look?'  '+t.look:'')+(t.own?'  '+size(t.own):'')+(t.ms?'  '+t.ms+' ms':''),''];}
 async function tick(){try{const s=await(await fetch('/state')).json();
+// Another wall answers (swapped in since, or made again): its page.
+if(s.page&&s.page!=='PAGEID'){location.reload();return;}
 if(s.era!==era){era=s.era;tiles.forEach((o,i)=>{o.v=-1;o.im.removeAttribute('src');choose(i,false);});}
 while(tiles.length<s.tiles.length)add(tiles.length);
 while(tiles.length>s.tiles.length){const o=tiles.pop();sel.delete(tiles.length);o.d.remove();}

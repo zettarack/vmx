@@ -122,14 +122,13 @@ func place(host string, tile int) int {
 
 // frame is what the wall hands out: the time to draw, and the wall's
 // shape. Show is the show's own clock, which the page's controls move and
-// hold, CutPart the part they last moved it to the start of, and Quiet
-// the page's text turned off; a wall from before the controls sends none
-// of them, and the show then runs on the wall's time, its text on.
+// hold, and CutPart the part they last moved it to the start of; a wall
+// from before the controls sends neither, and the show then runs on the
+// wall's time.
 type frame struct {
 	T       float64  `json:"t"`
 	Show    *float64 `json:"show"`
 	CutPart int64    `json:"cut_part"`
-	Quiet   bool     `json:"quiet"`
 	Cols    int      `json:"cols"`
 	Rows    int      `json:"rows"`
 	W       int      `json:"w"`
@@ -174,7 +173,7 @@ func ask(c *http.Client, wall string) (frame, error) {
 // render draws the tile's square of the show at the frame's moment in its
 // look; sh keeps what a part made at its first frame for the frames after.
 func render(sh *show.Show, tile int, f frame, look string) *image.RGBA {
-	return sh.Render(tile, show.Frame{T: f.at(), Cols: f.Cols, Rows: f.Rows, W: f.W, H: f.H, CutPart: f.CutPart, Quiet: f.Quiet}, look)
+	return sh.Render(tile, show.Frame{T: f.at(), Cols: f.Cols, Rows: f.Rows, W: f.W, H: f.H, CutPart: f.CutPart}, look)
 }
 
 // upMs is how long this machine had run when the tile's program started,

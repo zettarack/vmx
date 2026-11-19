@@ -41,14 +41,12 @@ const (
 // wall's controls last moved the show to the start of: that change does
 // not wait for each tile's turn (the part before it is not what was
 // playing), the flash alone still crossing the wall. 0, the zero value,
-// is no cut: part 0 has no part before it. Quiet is the page's text
-// turned off: the scrollers say nothing.
+// is no cut: part 0 has no part before it.
 type Frame struct {
 	T          float64
 	Cols, Rows int
 	W, H       int
 	CutPart    int64
-	Quiet      bool
 }
 
 // Looks are the colours a tile can draw in: blue (the wall's first
@@ -179,7 +177,7 @@ func (s *Show) Render(place int, f Frame, look string) *image.RGBA {
 	} else if p > 0 && local >= at && local-at < flashFor {
 		flash = 1 - (local-at)/flashFor
 	}
-	v := &view{x0: col * f.W, y0: row * f.H, w: f.W, h: f.H, pw: f.Cols * f.W, ph: f.Rows * f.H, quiet: f.Quiet}
+	v := &view{x0: col * f.W, y0: row * f.H, w: f.W, h: f.H, pw: f.Cols * f.W, ph: f.Rows * f.H}
 	if s.sc == nil || s.part != p || s.cols != f.Cols || s.rows != f.Rows || s.w != f.W || s.h != f.H {
 		fam, seed := partOf(p)
 		s.sc = fam.build(seed, v)
@@ -243,8 +241,6 @@ type view struct {
 	// display says px is already the screen's colour, not light: the
 	// palettes of the classic effects.
 	display bool
-	// quiet: the page's text is off, and the scrollers say nothing.
-	quiet bool
 }
 
 // aspect is the picture's width in heights.

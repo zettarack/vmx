@@ -141,7 +141,7 @@ func scroll(seed uint64) string {
 // gy, s pixels a font cell, speed pixels a second, riding a gentle wave,
 // faded at the picture's two ends, from t0 on.
 func (v *view) scroller(text string, gy, s int, speed, t0, t float64, c vec3) {
-	if t < t0 || v.quiet {
+	if t < t0 {
 		return
 	}
 	adv := 6 * s

@@ -12,21 +12,20 @@ import (
 // wall's own time, as it always did.
 func TestTheTileDrawsTheShowsClockWhenTheWallSendsOne(t *testing.T) {
 	for _, c := range []struct {
-		body  string
-		at    float64
-		cut   int64
-		quiet bool
+		body string
+		at   float64
+		cut  int64
 	}{
-		{`{"t":12.5,"cols":8,"rows":5,"w":160,"h":120}`, 12.5, 0, false},
-		{`{"t":12.5,"show":605.25,"cut_part":10,"quiet":true,"cols":8,"rows":5,"w":160,"h":120}`, 605.25, 10, true},
-		{`{"t":12.5,"show":0,"quiet":false,"cols":8,"rows":5,"w":160,"h":120}`, 0, 0, false},
+		{`{"t":12.5,"cols":8,"rows":5,"w":160,"h":120}`, 12.5, 0},
+		{`{"t":12.5,"show":605.25,"cut_part":10,"cols":8,"rows":5,"w":160,"h":120}`, 605.25, 10},
+		{`{"t":12.5,"show":0,"cols":8,"rows":5,"w":160,"h":120}`, 0, 0},
 	} {
 		var f frame
 		if err := json.Unmarshal([]byte(c.body), &f); err != nil {
 			t.Fatalf("%s: %v", c.body, err)
 		}
-		if f.at() != c.at || f.CutPart != c.cut || f.Quiet != c.quiet {
-			t.Errorf("%s: draws %v, cut %d, quiet %v; want %v, cut %d, quiet %v", c.body, f.at(), f.CutPart, f.Quiet, c.at, c.cut, c.quiet)
+		if f.at() != c.at || f.CutPart != c.cut {
+			t.Errorf("%s: draws %v, cut %d; want %v, cut %d", c.body, f.at(), f.CutPart, c.at, c.cut)
 		}
 	}
 }
