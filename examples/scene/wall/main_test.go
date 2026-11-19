@@ -1097,7 +1097,7 @@ func frameOf(t *testing.T, s *wall) frameDoc {
 // word that is none of these is refused with nothing changed.
 func TestTheShowsControlsMoveItsClockAndTheTilesAreTold(t *testing.T) {
 	s := fourTiles()
-	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "zettarack" || sh.Held || len(sh.Families) != 10 || sh.Families[0] != "zettarack" {
+	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "vmx" || sh.Held || len(sh.Families) != 10 || sh.Families[0] != "vmx" {
 		t.Fatalf("a new wall's show: %+v", sh)
 	}
 	if c := ask(t, s, "POST", "/show/next", ""); c != http.StatusNoContent {
@@ -1179,7 +1179,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 			t.Errorf("the page does not have %q", said)
 		}
 	}
-	for _, fam := range []string{"zettarack", "bits", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "tunnel", "plasma"} {
+	for _, fam := range []string{"vmx", "bits", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "tunnel", "plasma"} {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
 		}

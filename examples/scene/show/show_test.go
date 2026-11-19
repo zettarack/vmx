@@ -15,14 +15,14 @@ func TestTheScheduleKeepsItsPromises(t *testing.T) {
 	for p := int64(0); p < 600; p++ {
 		name := PartName(p)
 		// Fifteen, written here: the promise, not the constant that keeps it.
-		if (p%15 == 0) != (name == "zettarack") {
+		if (p%15 == 0) != (name == "vmx") {
 			t.Fatalf("part %d plays %s", p, name)
 		}
 		if name == last {
 			t.Fatalf("part %d plays %s twice running", p, name)
 		}
 		last = name
-		if name == "zettarack" {
+		if name == "vmx" {
 			continue
 		}
 		round[name]++
@@ -37,7 +37,7 @@ func TestTheScheduleKeepsItsPromises(t *testing.T) {
 
 func TestFamiliesAndNextOf(t *testing.T) {
 	f := Families()
-	if len(f) != 10 || f[0] != "zettarack" {
+	if len(f) != 10 || f[0] != "vmx" {
 		t.Fatalf("families: %v", f)
 	}
 	seen := map[string]bool{}
@@ -201,5 +201,17 @@ func TestTheTextCanBeTurnedOff(t *testing.T) {
 	}
 	if drawn < 6 {
 		t.Errorf("with the text off %d of 12 tiles drew anything", drawn)
+	}
+}
+
+// The wordmark and its tagline have a glyph for every character, and
+// draw: no letter of either is blank.
+func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {
+	for _, s := range []string{word, tagline} {
+		for i := 0; i < len(s); i++ {
+			if glyphFor(s[i]) == blank {
+				t.Errorf("%q: %q has no glyph", s, s[i])
+			}
+		}
 	}
 }

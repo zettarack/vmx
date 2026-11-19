@@ -3,9 +3,10 @@ package show
 import "math"
 
 // logo is the wordmark made of bits: the bits fall out of the dark, each
-// lit cell of zettarack catches one (the bottom rows first), and the word
-// holds while light runs across it and its digits flip, a drip falls from
-// the foot of each t, and at the end its bits fall away into the rain.
+// lit cell of VMX catches one (the bottom rows first), and the word holds
+// while light runs across it and its digits flip, zettarack.com typed out
+// under it, and at the end its bits fall away into the rain. A word with
+// a t has the drip from its foot, as the zettarack wordmark does.
 type logo struct {
 	cs, ds int // a cell's pixels; a digit's own cell in it
 	ox, oy int // the wordmark's top left in the picture
@@ -13,7 +14,8 @@ type logo struct {
 	drips  []drip
 	rain   *field
 	seed   uint64
-	line   string
+	// The tagline's left, its top and its font's cell.
+	tx, ty, ts int
 }
 
 type lit struct {
@@ -33,9 +35,12 @@ type drip struct {
 func newLogo(seed uint64, v *view) scene {
 	across := len(word)*6 - 1
 	cs := max(4, min(v.pw*84/100/across, v.ph*34/100/7))
-	lg := &logo{cs: cs, ds: max(1, cs/10), ox: (v.pw - across*cs) / 2, oy: v.ph*42/100 - 7*cs/2, seed: seed, line: scroll(seed)}
+	// A digit fills most of its cell's height.
+	lg := &logo{cs: cs, ds: max(1, int(float64(cs)*0.72/7+0.5)), ox: (v.pw - across*cs) / 2, oy: v.ph*42/100 - 7*cs/2, seed: seed}
+	lg.ts = max(2, cs/7)
+	lg.tx, lg.ty = (v.pw-(len(tagline)*6*lg.ts-lg.ts))/2, lg.oy+7*cs+cs*6/5
 	for li := 0; li < len(word); li++ {
-		g := letters[word[li]]
+		g := glyphFor(word[li])
 		for r := 0; r < 7; r++ {
 			for c := 0; c < 5; c++ {
 				if !g.on(c, r) {
@@ -132,10 +137,18 @@ func (lg *logo) frame(v *view, t float64) {
 		v.glow(float64(cx), float64(cy), float64(cs)*1.3, col.scale(0.10))
 		v.stamp(&digits[d], cx-dw/2, cy-dh/2, ds, col.add(gray(0.25*light)))
 	}
-	// Under the word, while it holds, a line of what is true of the host
-	// it all runs on, quiet, and the site at its end.
-	if t > 11 && t < 50 {
-		v.scroller(lg.line, lg.oy+7*cs+cs*3, max(1, cs/10), 95, 11, t, live.scale(0.55*smooth(11, 13, t)*smooth(50, 47, t)))
+	// Under the word, once it has landed, the site typed out, a cursor
+	// blinking after it; it goes with the word. Text off takes it away.
+	if !v.quiet && t > 8.5 && t < 50.5 {
+		fade := smooth(50.5, 49.5, t)
+		n := min(len(tagline), int((t-8.5)/0.12)+1)
+		for i := 0; i < n; i++ {
+			g := glyphFor(tagline[i])
+			v.stamp(&g, lg.tx+i*6*lg.ts, lg.ty, lg.ts, live.scale(0.9*fade))
+		}
+		if n < len(tagline) || math.Mod(t, 1) < 0.5 {
+			v.box(lg.tx+n*6*lg.ts, lg.ty, 5*lg.ts, 7*lg.ts, live.scale(0.5*fade))
+		}
 	}
 	// The drips from the two t's: one forms under the foot, hangs, and
 	// falls to the bottom, faint.

@@ -75,7 +75,7 @@ type family struct {
 	build func(seed uint64, v *view) scene
 }
 
-var wordmark = family{"zettarack", newLogo}
+var wordmark = family{"vmx", newLogo}
 
 // rotation is the families between two wordmarks. Each round plays them
 // all, in an order of its own.

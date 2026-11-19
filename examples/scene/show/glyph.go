@@ -11,8 +11,13 @@ var digits = [2]glyph{
 	{"..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."},
 }
 
-// word is the wordmark, in lower case as the wordmark is.
-const word = "zettarack"
+// word is the wordmark the show opens on, vmx's name, in capitals across
+// the wall; tagline is under it, the site, in lower case as the brand
+// writes it.
+const (
+	word    = "VMX"
+	tagline = "zettarack.com"
+)
 
 var letters = map[byte]glyph{
 	'z': {".....", ".....", "#####", "...#.", "..#..", ".#...", "#####"},
@@ -22,6 +27,23 @@ var letters = map[byte]glyph{
 	'r': {".....", ".....", "#.##.", "##..#", "#....", "#....", "#...."},
 	'c': {".....", ".....", ".###.", "#....", "#....", "#...#", ".###."},
 	'k': {"#....", "#....", "#..#.", "#.#..", "##...", "#.#..", "#..#."},
+	'o': {".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."},
+	'm': {".....", ".....", "##.#.", "#.#.#", "#.#.#", "#.#.#", "#.#.#"},
+}
+
+// blank is a character the font has no glyph for: nothing drawn.
+var blank = glyph{".....", ".....", ".....", ".....", ".....", ".....", "....."}
+
+// glyphFor is c's glyph: a lower case letter's own, else the capitals'
+// font's, else blank.
+func glyphFor(c byte) glyph {
+	if g, ok := letters[c]; ok {
+		return g
+	}
+	if g, ok := font[c]; ok {
+		return g
+	}
+	return blank
 }
 
 // on says whether cell (c, r) of g is lit.
