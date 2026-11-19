@@ -49,7 +49,7 @@
 # THE BUTTONS
 # A click chooses a tile and another lets it go, a drag chooses every tile
 # it passes, All and None choose every tile or none, and Escape lets them
-# all go. The buttons under the wall do their verb to every tile chosen,
+# all go. The buttons under the wall (cfg opens them) do their verb to every tile chosen,
 # at once, by the keeper with the vmx command, and each tile says on the
 # page what became of it and how long it took:
 #   Snapshot        its disk and its volume as they are, at one moment, in
@@ -189,7 +189,7 @@
 #
 # The images come with the script: scene/images holds the archives of
 # the three, scene-agent:9, its next version scene-agent:9-green and
-# scene-wall:17, which it takes with no argument and checks against the
+# scene-wall:18, which it takes with no argument and checks against the
 # digests below, so a clone of the examples, or a host whose installer put
 # them on it, runs the wall with no registry and no network.
 # scene/README.md builds them again from their sources. --from DIR takes
@@ -205,10 +205,10 @@
 #   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:9 NEXT_IMAGE=ghcr.io/you/scene-agent:9-green WALL_IMAGE=ghcr.io/you/scene-wall:17 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:9 NEXT_IMAGE=ghcr.io/you/scene-agent:9-green WALL_IMAGE=ghcr.io/you/scene-wall:18 ./05-demoscene-wall.sh
 #   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:9 \
 #   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:9-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:17 ./05-demoscene-wall.sh
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:18 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -255,11 +255,11 @@ protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
 # The images' digests, the tiles' scene-agent:9 and its second version
-# scene-agent:9-green, and the wall's scene-wall:17,
+# scene-agent:9-green, and the wall's scene-wall:18,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
 agent_digest=sha256:2fa5ebbbf77753d192b8aba7c6f7a85d933b9eff7513e240a83cb0a6dbda8c6d
-wall_digest=sha256:fc64417003653194cd5aa727bdf8e7a645d0040e8f5f70d50d911492173b1389
+wall_digest=sha256:90b0a9aa5bcd5ac6f4d278077aef4bacf297df0514653ea57658000d420125bd
 next_digest=sha256:73320a59719f69be03284406b81b0f6761f7d7bf5aba82a1b4f60c448c57b4c9
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
@@ -282,11 +282,11 @@ if [ "${1:-}" = --from ]; then
 	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-green.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
 	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:9}
 	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:9-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:17}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:18}
 fi
 agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:9}
 next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:9-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:17}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:18}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -1274,7 +1274,7 @@ echo
 echo "== the keeper"
 keeper_start
 echo
-echo "On the page: click or drag to choose tiles, then a button under the wall: Snapshot, Restore,"
+echo "On the page: click or drag to choose tiles, then a button in cfg, under the wall: Snapshot, Restore,"
 echo "Rebuild, Kill, Clone (as many as the box beside it says) or Remove. Reset the wall makes the whole wall again."
 echo "Each tile says what became of it, and the line under the clock what the host holds of the wall."
 echo "Pull some out:  for i in 05 06 13 14; do vmx container remove tile-\$i; done   (the keeper runs them again)"

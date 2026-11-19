@@ -1166,10 +1166,13 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 	page := w.Body.String()
 	for _, said := range []string{
 		`<button id="before"`, `<button id="hold"`, `<button id="next"`, `<span id="fams">`,
-		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, t, and 1 to 0",
+		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, and 1 to 0",
 		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
-		// Text off takes the tiles' corner counts away too.
-		"#wall.quiet .t b{display:none}", "wall.classList.toggle('quiet',sh.text===false);", "the counts out of the tiles' corners",
+		// Text off takes all the text away: the tiles' names and counts and
+		// the lines above the wall, as well as the line in the picture.
+		"body.quiet h1,body.quiet #bar,body.quiet #host,body.quiet .t span,body.quiet .t b{display:none}", "document.body.classList.toggle('quiet',sh.text===false);", "takes all the text away",
+		// The buttons fold into cfg under the wall, closed at first.
+		`<div id="panel" hidden>`, `<button id="cfg"`, "<b>cfg</b>", "else if(e.key==='c')cfg(panel.hidden);", "else if(!panel.hidden)cfg(false);",
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
 	} {
 		if !strings.Contains(page, said) {
