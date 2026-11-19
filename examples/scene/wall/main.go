@@ -1031,7 +1031,7 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 body.quiet h1,body.quiet #bar,body.quiet #host{visibility:hidden}
 body.quiet .t span,body.quiet .t b{display:none}
 #strip{display:flex;gap:8px;align-items:center;justify-content:center}
-#panel{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 14px;background:#0b0a16ee;border:1px solid #2a2850;border-radius:4px}
+#panel{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);z-index:3;width:max-content;max-width:calc(100vw - 32px);box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 14px;background:#0b0a16ee;border:1px solid #2a2850;border-radius:4px;box-shadow:0 0 30px #000c}
 #panel[hidden]{display:none}
 .t span,.t b{transition:opacity .3s}
 body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}
@@ -1098,8 +1098,8 @@ button:disabled{opacity:.35;cursor:default}
 <h2>What you are looking at</h2>
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
-<p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx wordmark with zettarack.com under it, a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a drive across a plain of vector lines and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
+<p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx wordmark with zettarack.com under it, a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a helicopter's flight over a plain of vector lines and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock and its text are the wall's, so every page open on it sees the same part, with the text or without.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1279,11 +1279,14 @@ for(const k of ['pointermove','pointerdown','keydown','touchstart','wheel'])docu
 setInterval(()=>document.body.classList.toggle('idle',Date.now()-stirred>6000&&panel.hidden&&!sel.size),250);
 function cfg(on){panel.hidden=!on;$('cfg').setAttribute('aria-expanded',on?'true':'false');$('cfg').classList.toggle('on',on);}
 $('cfg').onclick=()=>cfg(panel.hidden);
+// The page's address ending #cfg opens it with cfg's buttons shown.
+if(location.hash==='#cfg')cfg(true);
 // fit: the wall as large as the window lets it be with the lines above it
 // and the buttons under it in view too, so the whole picture is seen with
-// nothing to scroll; again when the window, the buttons (cfg opened) or
-// the wall (a clone's row) change size. Text off hides the lines above the
-// wall and keeps their room, so the wall does not move.
+// nothing to scroll; again when the window, the buttons or the wall (a
+// clone's row) change size. Text off hides the lines above the wall and
+// keeps their room, and cfg's panel lies over the wall's foot, so neither
+// moves the wall nor changes its size.
 function fit(){wall.style.zoom='';const w=wall.offsetWidth,h=wall.offsetHeight,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
 const k=Math.max(0.25,Math.min((innerWidth-24)/w,room/h));wall.style.zoom=String(Math.round(k*1000)/1000);}
 addEventListener('resize',fit);new ResizeObserver(fit).observe($('dock'));

@@ -2,31 +2,30 @@ package show
 
 import "math"
 
-// vector is a drive across a plain drawn the way the old vector screens
+// vector is a flight over a plain drawn the way the old vector screens
 // drew: lines of light on black, a glow round each, every edge of every
-// shape seen. Faint crosses mark the ground; blocks and pyramids stand on
-// the plain, a helicopter circles ahead, a range of mountains
-// runs round the horizon with a moon over it, a few wireframe rovers roam
-// among the blocks, and now and then a saucer crosses. The camera drives
-// on, swinging slowly from side to side.
+// shape seen. A helicopter of the scene's own, a utility helicopter after
+// the UH-1, flies a winding course low over the plain, nose a little down
+// in forward flight, rolling into each turn, climbing and sinking; the
+// camera chases it, banking with it. Faint crosses mark the ground; blocks,
+// pyramids and towers stand on it; a range of angular mountains runs round
+// the horizon with a crescent moon over it.
 type vector struct {
 	seed  uint64
-	speed float64
-	sway  float64
-	ridge []float64 // the mountains' heights, round the horizon
-	moon  float64   // the moon's bearing
+	speed float64 // the helicopter's, units a second
+	ridge []float64
+	moon  float64 // the moon's bearing
 	ink   vec3
 }
 
 const (
-	vecEye     = 1.4  // the camera's height
-	vecFocal   = 1.1  // picture heights from the eye to the screen
-	vecHorizon = 0.53 // the horizon, from the picture's top, in heights
-	vecCell    = 9.0  // the plain's cells, each with a shape or none
+	vecFocal = 1.1 // picture heights from the eye to the screen
+	vecCell  = 9.0 // the plain's cells, each with a shape or none
+	vecStep  = 0.05
 )
 
 func newVector(seed uint64, v *view) scene {
-	vc := &vector{seed: seed, speed: 3 + 2*h01(seed, 1), sway: 6 + 6*h01(seed, 2), moon: 2 * math.Pi * h01(seed, 3)}
+	vc := &vector{seed: seed, speed: 9 + 4*h01(seed, 1), moon: 2 * math.Pi * h01(seed, 3)}
 	// The phosphor's colour: green mostly, red or white now and then.
 	vc.ink = v3(0.3, 1.0, 0.42)
 	switch h := h01(seed, 4); {
@@ -49,26 +48,48 @@ func newVector(seed uint64, v *view) scene {
 	return vc
 }
 
-// cam is the camera at t: where it is and which way it faces.
+// heading is the helicopter's course at t: a slow winding, two swings of
+// their own lengths laid one on the other.
+func (vc *vector) heading(t float64) float64 {
+	p := float64(vc.seed % 97)
+	return 0.9*math.Sin(t*0.09+p) + 0.45*math.Sin(t*0.23+p*1.7)
+}
+
+// flight is where the helicopter is at t, its heading, and how it sits in
+// the air: nose down in forward flight, rolled into its turn as far as the
+// turn is quick, its height rising and sinking. The course is the sum of
+// its steps, so every tile works out the same place.
+func (vc *vector) flight(t float64) (p vec3, yaw, pitch, roll float64) {
+	n := int(t / vecStep)
+	x, z := 0.0, 0.0
+	for i := 0; i < n; i++ {
+		s, c := math.Sincos(vc.heading(float64(i) * vecStep))
+		x, z = x+s*vc.speed*vecStep, z+c*vc.speed*vecStep
+	}
+	last := t - float64(n)*vecStep
+	yaw = vc.heading(t)
+	s, c := math.Sincos(yaw)
+	x, z = x+s*vc.speed*last, z+c*vc.speed*last
+	turn := (vc.heading(t+0.2) - vc.heading(t-0.2)) / 0.4
+	roll = math.Max(-0.6, math.Min(0.6, -turn*vc.speed*0.12))
+	pitch = -0.1 - 0.03*math.Sin(t*0.31)
+	return v3(x, 13+3.5*math.Sin(t*0.17), z), yaw, pitch, roll
+}
+
+// cam is a camera: where it is and its three ways, right, up and forward.
 type cam struct {
-	eye  vec3
-	r, f vec3
-	yaw  float64
+	eye     vec3
+	r, u, f vec3
 }
 
-// cameraVel is how fast the camera moves across, ahead, and its height.
-func (vc *vector) cameraVel(t float64) (float64, float64, float64) {
-	const w = 0.11
-	return vc.sway * w * math.Cos(t*w), vc.speed, 0
-}
-
-func (vc *vector) camera(t float64) cam {
-	const w = 0.11
-	x := vc.sway * math.Sin(t*w)
-	z := vc.speed * t
-	yaw := math.Atan2(vc.sway*w*math.Cos(t*w), vc.speed)
-	sy, cy := math.Sincos(yaw)
-	return cam{eye: v3(x, vecEye, z), f: v3(sy, 0, cy), r: v3(cy, 0, -sy), yaw: yaw}
+// look is the camera at eye looking at target, turned by roll about its
+// line of sight.
+func look(eye, target vec3, roll float64) cam {
+	f := target.sub(eye).norm()
+	r := v3(0, 1, 0).cross(f).norm()
+	u := f.cross(r)
+	s, c := math.Sincos(roll)
+	return cam{eye: eye, f: f, r: r.scale(c).add(u.scale(s)), u: u.scale(c).sub(r.scale(s))}
 }
 
 // project is a point of the world on the picture, in pixels, and how far
@@ -76,9 +97,17 @@ func (vc *vector) camera(t float64) cam {
 func (c *cam) project(v *view, p vec3) (x, y, z float64) {
 	d := p.sub(c.eye)
 	z = d.dot(c.f)
-	x = d.dot(c.r) / z * vecFocal
-	y = d.y / z * vecFocal
-	return x*float64(v.ph) + float64(v.pw)/2, (vecHorizon - y) * float64(v.ph), z
+	return d.dot(c.r)/z*vecFocal*float64(v.ph) + float64(v.pw)/2, (0.5 - d.dot(c.u)/z*vecFocal) * float64(v.ph), z
+}
+
+// toward is a direction on the picture, as a point infinitely far away is:
+// false when it is behind the camera.
+func (c *cam) toward(v *view, d vec3) (x, y float64, ok bool) {
+	z := d.dot(c.f)
+	if z < 0.05 {
+		return 0, 0, false
+	}
+	return d.dot(c.r)/z*vecFocal*float64(v.ph) + float64(v.pw)/2, (0.5 - d.dot(c.u)/z*vecFocal) * float64(v.ph), true
 }
 
 // edge draws the world's line a-b, the part in front of the camera, its
@@ -96,8 +125,7 @@ func (vc *vector) edge(v *view, c *cam, a, b vec3, light float64) {
 	}
 	x0, y0, z0 := c.project(v, a)
 	x1, y1, z1 := c.project(v, b)
-	far := math.Min(z0, z1)
-	v.line(x0, y0, x1, y1, vc.ink.scale(light*sat(1.35-far/45)))
+	v.line(x0, y0, x1, y1, vc.ink.scale(light*sat(1.4-math.Min(z0, z1)/90)))
 }
 
 // line draws a line of light from (x0, y0) to (x1, y1), the picture's
@@ -177,188 +205,132 @@ func pyramid(at vec3, half, height, yaw float64) [][2]vec3 {
 	return e
 }
 
-// rover is a wireframe vehicle of the scene's own: a low hull with a
-// sloped nose, a turret on it and a gun from the turret, heading yaw,
-// k times its own size.
-func rover(at vec3, yaw, k float64) [][2]vec3 {
-	s, c := math.Sincos(yaw)
-	turn := func(x, y, z float64) vec3 { x, y, z = x*k, y*k, z*k; return v3(at.x+x*c+z*s, at.y+y, at.z-x*s+z*c) }
-	hull := []vec3{
-		turn(-0.9, 0, -1.4), turn(0.9, 0, -1.4), turn(0.9, 0, 1.0), turn(-0.9, 0, 1.0),
-		turn(-0.7, 0.55, -1.1), turn(0.7, 0.55, -1.1), turn(0.7, 0.55, 0.5), turn(-0.7, 0.55, 0.5),
-	}
-	var e [][2]vec3
-	for i := 0; i < 4; i++ {
-		e = append(e, [2]vec3{hull[i], hull[(i+1)%4]}, [2]vec3{hull[4+i], hull[4+(i+1)%4]}, [2]vec3{hull[i], hull[4+i]})
-	}
-	tur := []vec3{turn(-0.35, 0.55, -0.6), turn(0.35, 0.55, -0.6), turn(0.3, 0.9, -0.5), turn(-0.3, 0.9, -0.5), turn(0, 0.95, 0.1)}
-	e = append(e, [2]vec3{tur[0], tur[1]}, [2]vec3{tur[1], tur[2]}, [2]vec3{tur[2], tur[3]}, [2]vec3{tur[3], tur[0]},
-		[2]vec3{tur[2], tur[4]}, [2]vec3{tur[3], tur[4]}, [2]vec3{tur[0], tur[4]}, [2]vec3{tur[1], tur[4]})
-	e = append(e, [2]vec3{turn(0, 0.8, 0.0), turn(0, 0.8, 1.6)})
-	return e
-}
-
-// heli is a wireframe helicopter of the scene's own, heading yaw, k times
-// its own size, its rotors at angle spin: a cabin with a sloped
-// windscreen, a boom tapering to a fin, a tail rotor, the main rotor's
-// two blades on their mast, and skids on struts.
-func heli(at vec3, yaw, spin, k float64) [][2]vec3 {
-	s, c := math.Sincos(yaw)
+// heli is the scene's own utility helicopter, after the UH-1: a cabin
+// with a sloped windscreen, a boom tapering to a fin, a stabiliser across
+// the boom, a tail rotor, the main rotor's two long blades on their mast,
+// and skids on struts. It sits at at, heading yaw, pitched and rolled, k
+// times its own size, its rotors at angle spin.
+func heli(at vec3, yaw, pitch, roll, spin, k float64) [][2]vec3 {
+	sy, cy := math.Sincos(yaw)
+	sp, cp := math.Sincos(pitch)
+	sr, cr := math.Sincos(roll)
 	pt := func(x, y, z float64) vec3 {
 		x, y, z = x*k, y*k, z*k
-		return v3(at.x+x*c+z*s, at.y+y, at.z-x*s+z*c)
+		// Roll about the length, then pitch about the width, then yaw.
+		x, y = x*cr-y*sr, x*sr+y*cr
+		y, z = y*cp-z*sp, y*sp+z*cp
+		return v3(at.x+x*cy+z*sy, at.y+y, at.z-x*sy+z*cy)
 	}
 	cab := []vec3{
-		pt(-0.6, 0.1, -1.0), pt(0.6, 0.1, -1.0), pt(0.6, 0.1, 1.4), pt(-0.6, 0.1, 1.4),
-		pt(-0.5, 1.0, -0.9), pt(0.5, 1.0, -0.9), pt(0.5, 1.0, 0.5), pt(-0.5, 1.0, 0.5),
+		pt(-0.65, 0, -1.1), pt(0.65, 0, -1.1), pt(0.65, 0, 1.3), pt(-0.65, 0, 1.3),
+		pt(-0.55, 1.05, -1.0), pt(0.55, 1.05, -1.0), pt(0.55, 1.05, 0.4), pt(-0.55, 1.05, 0.4),
 	}
 	var e [][2]vec3
 	for i := 0; i < 4; i++ {
 		e = append(e, [2]vec3{cab[i], cab[(i+1)%4]}, [2]vec3{cab[4+i], cab[4+(i+1)%4]}, [2]vec3{cab[i], cab[4+i]})
 	}
-	// The boom, narrowing to the fin.
-	e = append(e, [2]vec3{pt(0, 0.8, -0.9), pt(0, 0.95, -4.2)}, [2]vec3{pt(0, 0.35, -0.9), pt(0, 0.8, -4.0)},
-		[2]vec3{pt(0, 0.95, -4.2), pt(0, 0.8, -4.0)})
-	e = append(e, [2]vec3{pt(0, 0.95, -4.2), pt(0, 1.8, -4.6)}, [2]vec3{pt(0, 1.8, -4.6), pt(0, 1.6, -3.9)}, [2]vec3{pt(0, 1.6, -3.9), pt(0, 0.95, -3.7)})
-	// The tail rotor turns across the boom, faster than the main one.
+	// The nose's chin, under the windscreen.
+	e = append(e, [2]vec3{pt(-0.65, 0, 1.3), pt(0, -0.05, 1.7)}, [2]vec3{pt(0.65, 0, 1.3), pt(0, -0.05, 1.7)}, [2]vec3{pt(0, -0.05, 1.7), pt(0, 0.5, 1.0)})
+	// The boom, narrowing to the fin, the stabiliser across it.
+	e = append(e, [2]vec3{pt(0, 0.85, -1.0), pt(0, 1.0, -5.2)}, [2]vec3{pt(0, 0.35, -1.0), pt(0, 0.85, -5.0)},
+		[2]vec3{pt(0, 1.0, -5.2), pt(0, 0.85, -5.0)})
+	e = append(e, [2]vec3{pt(0, 1.0, -5.2), pt(0, 2.0, -5.7)}, [2]vec3{pt(0, 2.0, -5.7), pt(0, 1.8, -4.9)}, [2]vec3{pt(0, 1.8, -4.9), pt(0, 1.0, -4.7)})
+	e = append(e, [2]vec3{pt(-0.9, 0.75, -3.4), pt(0.9, 0.75, -3.4)}, [2]vec3{pt(-0.9, 0.75, -3.4), pt(-0.9, 0.75, -3.0)}, [2]vec3{pt(0.9, 0.75, -3.4), pt(0.9, 0.75, -3.0)})
+	// The tail rotor turns on the boom's left, faster than the main one.
 	ts, tc := math.Sincos(spin * 2.7)
-	e = append(e, [2]vec3{pt(0.15, 1.25+0.55*tc, -4.35+0.55*ts), pt(0.15, 1.25-0.55*tc, -4.35-0.55*ts)})
-	// The mast and the main rotor's two blades.
-	hub := pt(0, 1.3, -0.2)
-	e = append(e, [2]vec3{pt(0, 1.0, -0.2), hub})
+	e = append(e, [2]vec3{pt(-0.2, 1.5+0.6*tc, -5.4+0.6*ts), pt(-0.2, 1.5-0.6*tc, -5.4-0.6*ts)})
+	// The mast and the main rotor's two blades, long as the helicopter.
+	e = append(e, [2]vec3{pt(0, 1.05, -0.2), pt(0, 1.4, -0.2)})
 	ms, mc := math.Sincos(spin)
-	for _, d := range [][2]float64{{mc, ms}, {-ms, mc}} {
-		e = append(e, [2]vec3{pt(-2.6*d[0], 1.3, -0.2-2.6*d[1]), pt(2.6*d[0], 1.3, -0.2+2.6*d[1])})
-	}
+	e = append(e, [2]vec3{pt(-3.6*mc, 1.4, -0.2-3.6*ms), pt(3.6*mc, 1.4, -0.2+3.6*ms)})
 	// Skids on struts, turned up at the front.
-	for _, x := range []float64{-0.75, 0.75} {
-		e = append(e, [2]vec3{pt(x, -0.35, -0.9), pt(x, -0.35, 1.3)}, [2]vec3{pt(x, -0.35, 1.3), pt(x, -0.1, 1.6)},
-			[2]vec3{pt(x*0.7, 0.1, -0.4), pt(x, -0.35, -0.4)}, [2]vec3{pt(x*0.7, 0.1, 0.8), pt(x, -0.35, 0.8)})
-	}
-	return e
-}
-
-// saucer is two shallow cones rim to rim.
-func saucer(at vec3, r, spin float64) [][2]vec3 {
-	const n = 10
-	var rim [n]vec3
-	for i := range rim {
-		s, c := math.Sincos(spin + float64(i)/n*2*math.Pi)
-		rim[i] = at.add(v3(c*r, 0, s*r))
-	}
-	top, bot := at.add(v3(0, r*0.4, 0)), at.add(v3(0, -r*0.25, 0))
-	var e [][2]vec3
-	for i := range rim {
-		e = append(e, [2]vec3{rim[i], rim[(i+1)%n]})
-		if i%2 == 0 {
-			e = append(e, [2]vec3{rim[i], top}, [2]vec3{rim[i], bot})
-		}
+	for _, x := range []float64{-0.8, 0.8} {
+		e = append(e, [2]vec3{pt(x, -0.4, -1.0), pt(x, -0.4, 1.4)}, [2]vec3{pt(x, -0.4, 1.4), pt(x, -0.15, 1.7)},
+			[2]vec3{pt(x*0.75, 0, -0.5), pt(x, -0.4, -0.5)}, [2]vec3{pt(x*0.75, 0, 0.8), pt(x, -0.4, 0.8)})
 	}
 	return e
 }
 
 func (vc *vector) frame(v *view, t float64) {
-	c := vc.camera(t)
+	hp, yaw, pitch, roll := vc.flight(t)
+	fs, fc := math.Sincos(yaw)
+	fwd, side := v3(fs, 0, fc), v3(fc, 0, -fs)
+	// The camera chases from behind and to one side, a little above, so the
+	// helicopter shows its side as it goes, looking past it down its
+	// course, banking with it.
+	eye := hp.sub(fwd.scale(11)).add(v3(0, 2.6, 0)).add(side.scale(6 + 2*math.Sin(t*0.07)))
+	c := look(eye, hp.add(fwd.scale(7)).sub(v3(0, 1.2, 0)), roll*0.35)
 	// The horizon, the mountains round it and the moon over it: so far off
-	// they turn with the camera alone, never coming nearer.
-	hy := vecHorizon * float64(v.ph)
-	v.line(-10, hy, float64(v.pw)+10, hy, vc.ink.scale(0.35))
-	fov := math.Atan(float64(v.pw) / 2 / float64(v.ph) / vecFocal)
-	at := func(bearing, up float64) (float64, float64, bool) {
-		a := math.Remainder(bearing-c.yaw, 2*math.Pi)
-		if math.Abs(a) > fov+0.2 {
-			return 0, 0, false
+	// they turn with the camera and never come nearer.
+	horizon := func(b, el float64) vec3 {
+		s, co := math.Sincos(b)
+		return v3(s*math.Cos(el), math.Sin(el), co*math.Cos(el))
+	}
+	const ring = 128
+	for i := 0; i < ring; i++ {
+		b0, b1 := float64(i)/ring*2*math.Pi, float64(i+1)/ring*2*math.Pi
+		if x0, y0, ok := c.toward(v, horizon(b0, 0)); ok {
+			if x1, y1, ok := c.toward(v, horizon(b1, 0)); ok {
+				v.line(x0, y0, x1, y1, vc.ink.scale(0.35))
+			}
 		}
-		return math.Tan(a)*vecFocal*float64(v.ph) + float64(v.pw)/2, hy - up*float64(v.ph), true
 	}
 	n := len(vc.ridge)
 	for i := 0; i < n; i++ {
 		b0, b1 := float64(i)/float64(n)*2*math.Pi, float64(i+1)/float64(n)*2*math.Pi
-		x0, y0, ok0 := at(b0, vc.ridge[i])
-		x1, y1, ok1 := at(b1, vc.ridge[(i+1)%n])
-		if ok0 && ok1 {
-			v.line(x0, y0, x1, y1, vc.ink.scale(0.55))
+		if x0, y0, ok := c.toward(v, horizon(b0, vc.ridge[i])); ok {
+			if x1, y1, ok := c.toward(v, horizon(b1, vc.ridge[(i+1)%n])); ok {
+				v.line(x0, y0, x1, y1, vc.ink.scale(0.55))
+			}
 		}
 	}
-	if mx, my, ok := at(vc.moon, 0.3); ok {
+	if mx, my, ok := c.toward(v, horizon(vc.moon, 0.3)); ok {
 		r := 0.045 * float64(v.ph)
 		for k := 0; k < 16; k++ {
 			a0, a1 := math.Pi*0.15+float64(k)/16*math.Pi*1.7, math.Pi*0.15+float64(k+1)/16*math.Pi*1.7
 			v.line(mx+r*math.Cos(a0), my-r*math.Sin(a0), mx+r*math.Cos(a1), my-r*math.Sin(a1), vc.ink.scale(0.7))
-			// The crescent's inner edge, a smaller circle set off to the side.
 			v.line(mx+0.35*r+0.8*r*math.Cos(a0), my-0.8*r*math.Sin(a0), mx+0.35*r+0.8*r*math.Cos(a1), my-0.8*r*math.Sin(a1), vc.ink.scale(0.4))
 		}
 	}
-	// Marks on the ground, a cross every five units, faint: what the plain
-	// shows of the camera's speed.
-	for gz := math.Ceil((c.eye.z+1.5)/5) * 5; gz < c.eye.z+38; gz += 5 {
-		for gx := math.Floor((c.eye.x-26)/5) * 5; gx <= c.eye.x+26; gx += 5 {
-			vc.edge(v, &c, v3(gx-0.25, 0, gz), v3(gx+0.25, 0, gz), 0.45)
-			vc.edge(v, &c, v3(gx, 0, gz-0.25), v3(gx, 0, gz+0.25), 0.45)
+	// Marks on the ground, a cross every five units round where the
+	// camera looks, faint: the speed the plain shows.
+	gx0, gz0 := hp.x+fwd.x*18, hp.z+fwd.z*18
+	for gz := math.Floor((gz0-45)/5) * 5; gz <= gz0+45; gz += 5 {
+		for gx := math.Floor((gx0-45)/5) * 5; gx <= gx0+45; gx += 5 {
+			vc.edge(v, &c, v3(gx-0.3, 0, gz), v3(gx+0.3, 0, gz), 0.45)
+			vc.edge(v, &c, v3(gx, 0, gz-0.3), v3(gx, 0, gz+0.3), 0.45)
 		}
 	}
-	// The plain's shapes, a cell's worth at a time round the camera.
-	ci, cj := int(math.Floor(c.eye.x/vecCell)), int(math.Floor(c.eye.z/vecCell))
-	for j := cj - 2; j <= cj+6; j++ {
-		for i := ci - 7; i <= ci+7; i++ {
+	// The plain's shapes, a cell's worth at a time round where the camera
+	// looks.
+	ci, cj := int(math.Floor(gx0/vecCell)), int(math.Floor(gz0/vecCell))
+	for j := cj - 8; j <= cj+8; j++ {
+		for i := ci - 8; i <= ci+8; i++ {
 			k := uint64(int64(i))*0x9e3779b1 ^ uint64(int64(j))*0x51ed27 ^ vc.seed
 			kind := h01(k, 1)
 			if kind > 0.3 {
 				continue
 			}
 			p := v3((float64(i)+0.2+0.6*h01(k, 2))*vecCell, 0, (float64(j)+0.2+0.6*h01(k, 3))*vecCell)
-			if math.Abs(p.x-c.eye.x) < 2.5 && math.Abs(p.z-c.eye.z) < 4 {
-				continue // the road the camera drives is kept clear
-			}
-			yaw := h01(k, 4) * math.Pi
+			sy := h01(k, 4) * math.Pi
 			var edges [][2]vec3
 			switch {
 			case kind < 0.13:
-				edges = pyramid(p, 1+1.2*h01(k, 5), 1.5+2.5*h01(k, 6), yaw)
+				edges = pyramid(p, 1+1.2*h01(k, 5), 1.5+2.5*h01(k, 6), sy)
 			case kind < 0.24:
 				s := 0.8 + 1.4*h01(k, 5)
-				edges = wirebox(p.sub(v3(s, 0, s)), p.add(v3(s, 2*s, s)), yaw)
+				edges = wirebox(p.sub(v3(s, 0, s)), p.add(v3(s, 2*s, s)), sy)
 			default:
 				s := 0.6 + 0.6*h01(k, 5)
-				edges = wirebox(p.sub(v3(s, 0, s)), p.add(v3(s, 4+4*h01(k, 6), s)), yaw)
+				edges = wirebox(p.sub(v3(s, 0, s)), p.add(v3(s, 4+4*h01(k, 6), s)), sy)
 			}
 			for _, e := range edges {
-				vc.edge(v, &c, e[0], e[1], 0.9)
+				vc.edge(v, &c, e[0], e[1], 0.7)
 			}
 		}
 	}
-	// The rovers, roaming ahead of the camera.
-	for r := 0; r < 3; r++ {
-		fr := float64(r)
-		x := c.eye.x + 14*math.Sin(t*0.13+fr*2.1)
-		z := c.eye.z + 13 + 6*math.Cos(t*0.17+fr*1.3) + 6*fr
-		dx := 14 * 0.13 * math.Cos(t*0.13+fr*2.1)
-		dz := vc.speed - 6*0.17*math.Sin(t*0.17+fr*1.3)
-		for _, e := range rover(v3(x, 0, z), math.Atan2(dx, dz), 1.5) {
-			vc.edge(v, &c, e[0], e[1], 1.2)
-		}
-	}
-	// The helicopter, circling a point that keeps ahead of the camera, so
-	// it crosses the view side on, rising and sinking a little.
-	{
-		const orbit, turn = 10.0, 0.24
-		a := t*turn + float64(vc.seed%7)
-		sa, ca := math.Sincos(a)
-		hx, hz := c.eye.x+orbit*ca, c.eye.z+24+orbit*sa
-		hy := 4 + 1.2*math.Sin(t*0.37)
-		cx, _, _ := vc.cameraVel(t)
-		dx, dz := -orbit*turn*sa+cx, orbit*turn*ca+vc.speed
-		for _, e := range heli(v3(hx, hy, hz), math.Atan2(dx, dz), t*17, 1.6) {
-			vc.edge(v, &c, e[0], e[1], 1.3)
-		}
-	}
-	// A saucer crossing, now and then.
-	if u := math.Mod(t, 24); u < 9 {
-		k := uint64(t / 24)
-		x := c.eye.x + lerp(-40, 40, u/9)*(1-2*float64(mix64(k^vc.seed)&1))
-		pos := v3(x, 6+4*h01(k, 7), c.eye.z+30+15*h01(k, 8))
-		for _, e := range saucer(pos, 1.6, t*2) {
-			vc.edge(v, &c, e[0], e[1], 1.2)
-		}
+	// The helicopter, last, over everything.
+	for _, e := range heli(hp, yaw, pitch, roll, t*17, 1.2) {
+		vc.edge(v, &c, e[0], e[1], 1.7)
 	}
 }
