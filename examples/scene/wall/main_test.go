@@ -1168,6 +1168,8 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		`<button id="before"`, `<button id="hold"`, `<button id="next"`, `<span id="fams">`,
 		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, t, and 1 to 0",
 		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
+		// Text off takes the tiles' corner counts away too.
+		"#wall.quiet .t b{display:none}", "wall.classList.toggle('quiet',sh.text===false);", "the counts out of the tiles' corners",
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
 	} {
 		if !strings.Contains(page, said) {

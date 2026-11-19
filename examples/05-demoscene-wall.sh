@@ -189,7 +189,7 @@
 #
 # The images come with the script: scene/images holds the archives of
 # the three, scene-agent:9, its next version scene-agent:9-green and
-# scene-wall:16, which it takes with no argument and checks against the
+# scene-wall:17, which it takes with no argument and checks against the
 # digests below, so a clone of the examples, or a host whose installer put
 # them on it, runs the wall with no registry and no network.
 # scene/README.md builds them again from their sources. --from DIR takes
@@ -205,10 +205,10 @@
 #   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:9 NEXT_IMAGE=ghcr.io/you/scene-agent:9-green WALL_IMAGE=ghcr.io/you/scene-wall:16 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:9 NEXT_IMAGE=ghcr.io/you/scene-agent:9-green WALL_IMAGE=ghcr.io/you/scene-wall:17 ./05-demoscene-wall.sh
 #   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:9 \
 #   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:9-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:16 ./05-demoscene-wall.sh
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:17 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -255,11 +255,11 @@ protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
 # The images' digests, the tiles' scene-agent:9 and its second version
-# scene-agent:9-green, and the wall's scene-wall:16,
+# scene-agent:9-green, and the wall's scene-wall:17,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
 agent_digest=sha256:2fa5ebbbf77753d192b8aba7c6f7a85d933b9eff7513e240a83cb0a6dbda8c6d
-wall_digest=sha256:7fad454ab63181422797879cf55009fb5324082a16bd645bbef695c1af512334
+wall_digest=sha256:fc64417003653194cd5aa727bdf8e7a645d0040e8f5f70d50d911492173b1389
 next_digest=sha256:73320a59719f69be03284406b81b0f6761f7d7bf5aba82a1b4f60c448c57b4c9
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
@@ -282,11 +282,11 @@ if [ "${1:-}" = --from ]; then
 	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-green.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
 	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:9}
 	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:9-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:16}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:17}
 fi
 agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:9}
 next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:9-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:16}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:17}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"

@@ -60,7 +60,8 @@ with a flash: the change crosses the wall from machine to machine.
 
 The page's **Before**, **Hold**, **Next** and a button for each family
 move the show, for every tile and every page open on it, and **Text off**
-takes the line of text out of the picture (**Text on** brings it back);
+takes the line of text out of the picture and the disk and volume counts
+out of the tiles' corners (**Text on** brings them back);
 the keys do the same: the left and right arrows, space, t, and 1 to 0
 for the families in the order shown. The wall keeps the show's clock and hands it to the
 tiles with each frame (`show`; `cut_part` for a part the controls moved
@@ -183,7 +184,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:9`, `scene-agent:9-green` and `scene-wall:16`, the
+archives, `scene-agent:9`, `scene-agent:9-green` and `scene-wall:17`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -206,10 +207,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
 podman build -f Containerfile.agent -t scene-agent:9 .
 podman build -f Containerfile.green -t scene-agent:9-green .
-podman build -f Containerfile.wall -t scene-wall:16 .
+podman build -f Containerfile.wall -t scene-wall:17 .
 podman save --format oci-archive -o scene-agent.tar scene-agent:9
 podman save --format oci-archive -o scene-agent-green.tar scene-agent:9-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:16
+podman save --format oci-archive -o scene-wall.tar scene-wall:17
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -223,7 +224,7 @@ above.
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:9 \
 NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:9-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:16 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:17 \
 ./05-demoscene-wall.sh
 ```
 

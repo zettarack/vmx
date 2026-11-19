@@ -1019,6 +1019,7 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 .t span{position:absolute;left:4px;bottom:4px;max-width:calc(100% - 16px);padding:1px 4px;border-radius:2px;background:#05040acc;font-size:10px;line-height:1.3;color:#fff;pointer-events:none}
 .t b{position:absolute;right:4px;top:4px;padding:0 4px;border-radius:2px;background:#05040acc;font-size:12px;color:#fff;pointer-events:none;white-space:pre;text-align:right}
 .t b:empty{display:none}
+#wall.quiet .t b{display:none}
 .t::after{content:'';position:absolute;inset:0;border:3px solid transparent;pointer-events:none}
 .t.sel::after{border-color:#ff3cac;box-shadow:inset 0 0 0 1px #000,inset 0 0 22px #ff3cacbb}
 .none span{color:#8d90c4}
@@ -1067,7 +1068,7 @@ button:disabled{opacity:.35;cursor:default}
 <h1>FIRECRACKER WALL</h1>
 <div id="bar"><span id="live"></span><span id="fps"></span><span id="clock"></span><span id="new"></span><span id="looks"></span></div>
 <div id="host"></div>
-<div id="show"><button id="before" title="this part from its start, or the one before it (left arrow)">Before</button><button id="hold" title="hold the show where it is, or let it run on (space)">Hold</button><button id="next" title="the next part (right arrow)">Next</button><button id="text" title="the line of text in the picture, off or on (t)">Text off</button><i></i><span id="fams"></span><span id="part"></span></div>
+<div id="show"><button id="before" title="this part from its start, or the one before it (left arrow)">Before</button><button id="hold" title="hold the show where it is, or let it run on (space)">Hold</button><button id="next" title="the next part (right arrow)">Next</button><button id="text" title="the line of text in the picture and the counts in the tiles' corners, off or on (t)">Text off</button><i></i><span id="fams"></span><span id="part"></span></div>
 <div id="wall"></div>
 <div id="dock">
 <div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
@@ -1079,7 +1080,7 @@ button:disabled{opacity:.35;cursor:default}
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
 <p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the zettarack wordmark, bits, land, day, space, shapes, a Mandelbrot dive, a Julia set, a tunnel and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Above the wall: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; <b>Text off</b> takes the line of text out of the picture, and <b>Text on</b> brings it back. The keys do the same: the left and right arrows, space, t, and 1 to 0 for the families in the order shown. The show's clock is the wall's, so every page open on it sees the same part.</p>
+<p>Above the wall: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; <b>Text off</b> takes the line of text out of the picture and the counts out of the tiles' corners, and <b>Text on</b> brings them back. The keys do the same: the left and right arrows, space, t, and 1 to 0 for the families in the order shown. The show's clock is the wall's, so every page open on it sees the same part.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1249,7 +1250,8 @@ if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(
 document.querySelectorAll('#fams button').forEach(b=>b.classList.toggle('on',b.dataset.f===sh.family));
 const s=Math.floor(sh.in_s);$('part').innerHTML='part <b>'+sh.part+'</b> &middot; <b>'+sh.family+'</b> &middot; '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+(sh.held?' &middot; <b>held</b>':'');
 $('hold').classList.toggle('on',sh.held);$('hold').textContent=sh.held?'Run':'Hold';
-$('text').classList.toggle('on',sh.text===false);$('text').textContent=sh.text===false?'Text on':'Text off';}
+$('text').classList.toggle('on',sh.text===false);$('text').textContent=sh.text===false?'Text on':'Text off';
+wall.classList.toggle('quiet',sh.text===false);}
 document.addEventListener('keydown',e=>{
 if(e.key==='Escape'){if(!info.hidden)showInfo(false);else $('none').onclick();return;}
 if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest?.('input,textarea,select'))return;
