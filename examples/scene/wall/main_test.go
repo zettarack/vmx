@@ -1050,3 +1050,132 @@ func TestATilesSnapshotsAreListedWhenAPageAsks(t *testing.T) {
 		t.Errorf("none listed: %v", d)
 	}
 }
+
+type showDoc struct {
+	Part     int64    `json:"part"`
+	Family   string   `json:"family"`
+	In       float64  `json:"in_s"`
+	Held     bool     `json:"held"`
+	Families []string `json:"families"`
+}
+
+func showOf(t *testing.T, s *wall) showDoc {
+	t.Helper()
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/state", nil))
+	var d struct {
+		Show showDoc `json:"show"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatalf("state: %v: %s", err, w.Body.String())
+	}
+	return d.Show
+}
+
+type frameDoc struct {
+	T    float64 `json:"t"`
+	Show float64 `json:"show"`
+	Cut  int64   `json:"cut_part"`
+}
+
+func frameOf(t *testing.T, s *wall) frameDoc {
+	t.Helper()
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/frame", nil))
+	var f frameDoc
+	if err := json.Unmarshal(w.Body.Bytes(), &f); err != nil {
+		t.Fatalf("frame: %v: %s", err, w.Body.String())
+	}
+	return f
+}
+
+// The page's controls move the show's clock, and the tiles are told it
+// with each frame: next to the next part's start, told as a cut; before,
+// within a part's first four seconds, to the one before it, and later in
+// a part to its own start; hold holds the clock and runs it on again; a
+// family's name to the next part that plays it, for every family; and a
+// word that is none of these is refused with nothing changed.
+func TestTheShowsControlsMoveItsClockAndTheTilesAreTold(t *testing.T) {
+	s := fourTiles()
+	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "zettarack" || sh.Held || len(sh.Families) != 10 || sh.Families[0] != "zettarack" {
+		t.Fatalf("a new wall's show: %+v", sh)
+	}
+	if c := ask(t, s, "POST", "/show/next", ""); c != http.StatusNoContent {
+		t.Fatalf("next: %d", c)
+	}
+	f := frameOf(t, s)
+	if f.Show < 60 || f.Show > 61 || f.Cut != 1 {
+		t.Errorf("after next the tiles draw %v, cut %d; want part 1's start, cut 1", f.Show, f.Cut)
+	}
+	if c := ask(t, s, "POST", "/show/before", ""); c != http.StatusNoContent {
+		t.Fatalf("before: %d", c)
+	}
+	if sh := showOf(t, s); sh.Part != 0 {
+		t.Errorf("before, at a part's start, plays part %d, want 0", sh.Part)
+	}
+	// Later in a part, before plays it again from its start.
+	s.mu.Lock()
+	s.showBase, s.showAt = 3*60+30, time.Now()
+	s.mu.Unlock()
+	ask(t, s, "POST", "/show/before", "")
+	if sh := showOf(t, s); sh.Part != 3 || sh.In > 1 {
+		t.Errorf("before, half way into part 3: part %d at %.1f s, want part 3 from its start", sh.Part, sh.In)
+	}
+	ask(t, s, "POST", "/show/hold", "")
+	a := showOf(t, s)
+	time.Sleep(60 * time.Millisecond)
+	b := showOf(t, s)
+	if !a.Held || a.In != b.In {
+		t.Errorf("held: %+v then %+v, want the same moment", a, b)
+	}
+	ask(t, s, "POST", "/show/hold", "")
+	time.Sleep(60 * time.Millisecond)
+	if c := showOf(t, s); c.Held || c.In <= b.In {
+		t.Errorf("run on: %+v, want the clock going on from %.3f", c, b.In)
+	}
+	for _, fam := range showOf(t, s).Families {
+		before := showOf(t, s).Part
+		if c := ask(t, s, "POST", "/show/"+fam, ""); c != http.StatusNoContent {
+			t.Fatalf("%s: %d", fam, c)
+		}
+		sh := showOf(t, s)
+		if sh.Family != fam || sh.Part <= before || sh.In > 1 {
+			t.Errorf("%s: part %d (%s) at %.1f s, after part %d", fam, sh.Part, sh.Family, sh.In, before)
+		}
+		if f := frameOf(t, s); f.Cut != sh.Part {
+			t.Errorf("%s: the tiles are told cut %d, want %d", fam, f.Cut, sh.Part)
+		}
+	}
+	was := showOf(t, s)
+	// A path the mux cleans first ("../next") is sent elsewhere, not done.
+	for _, bad := range []string{"nope", "Bits", "next%20", "../next", "%00", "hold%2Fnext"} {
+		if c := ask(t, s, "POST", "/show/"+bad, ""); c == http.StatusNoContent {
+			t.Errorf("%q was done", bad)
+		}
+	}
+	if now := showOf(t, s); now.Part != was.Part {
+		t.Errorf("a refused word moved the show: part %d, was %d", now.Part, was.Part)
+	}
+}
+
+// The page has the show's controls, says what they do and which keys do
+// the same, and names every family.
+func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
+	w := httptest.NewRecorder()
+	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	for _, said := range []string{
+		`<button id="before"`, `<button id="hold"`, `<button id="next"`, `<span id="fams">`,
+		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "the left and right arrows, space, and 1 to 0",
+		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
+	} {
+		if !strings.Contains(page, said) {
+			t.Errorf("the page does not have %q", said)
+		}
+	}
+	for _, fam := range []string{"zettarack", "bits", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "tunnel", "plasma"} {
+		if !strings.Contains(page, fam) {
+			t.Errorf("the info does not name %s", fam)
+		}
+	}
+}

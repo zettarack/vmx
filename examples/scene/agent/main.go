@@ -1,7 +1,10 @@
 // Command scene-agent is a tile of the demoscene wall: a small daemon that
-// asks the wall for the frame's time, draws its own part of a Mandelbrot
-// zoom in a cycling palette, sends the picture back, and goes again. Each
-// frame deeper in the zoom costs more: the wall shows real work. It is
+// asks the wall for the frame's time, draws its own square of the wall's
+// show (package show: an hour of scenes, each worked out from the show's
+// clock alone, so every tile agrees with the others without a word
+// between them), sends the picture back, and goes again. A deep fractal
+// or a raymarched solid costs more to draw than a plasma: the wall's
+// frames a second show real work. It is
 // told its place by TILE (0 and up) and where the wall is by WALL
 // (http://HOST:PORT), at most FPS frames a second (8 unless set: forty
 // tiles uncapped sent a hundred frames a second each on one host).
@@ -18,10 +21,10 @@
 // new image rolled out) starts its disk's count from nothing and goes on
 // with its volume's. A snapshot takes both at one moment and a rollback
 // returns both; a clone copies both. LOOK names the colours it draws in:
-// blue (also when it is not set), black through deep blue and sky to
-// white; green, the same through green, which is what the wall's second
-// image sets (ENV LOOK=green), a new version of the program rolled out
-// over the tiles; classic, a cycling rainbow. A host
+// blue (also when it is not set), the scene's light from black through
+// deep blue and sky to white; green, the same through green, which is what
+// the wall's second image sets (ENV LOOK=green), a new version of the
+// program rolled out over the tiles; classic, each scene's own colours. A host
 // named tile-N (the container's name, which vmx gives the microVM) draws
 // place N whatever TILE says: a clone of tile-07 named tile-40 draws a
 // place of its own, below the picture's own rows.
@@ -36,17 +39,17 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"image/png"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"scene/show"
 )
 
 // counted is where the count of frames drawn is kept, on the tile's own
@@ -117,13 +120,27 @@ func place(host string, tile int) int {
 	return tile
 }
 
-// frame is what the wall hands out: the time to draw, and the wall's shape.
+// frame is what the wall hands out: the time to draw, and the wall's
+// shape. Show is the show's own clock, which the page's controls move and
+// hold, and CutPart the part they last moved it to the start of; a wall
+// from before the controls sends neither, and the show then runs on the
+// wall's time.
 type frame struct {
-	T    float64 `json:"t"`
-	Cols int     `json:"cols"`
-	Rows int     `json:"rows"`
-	W    int     `json:"w"`
-	H    int     `json:"h"`
+	T       float64  `json:"t"`
+	Show    *float64 `json:"show"`
+	CutPart int64    `json:"cut_part"`
+	Cols    int      `json:"cols"`
+	Rows    int      `json:"rows"`
+	W       int      `json:"w"`
+	H       int      `json:"h"`
+}
+
+// at is the moment of the show to draw.
+func (f frame) at() float64 {
+	if f.Show != nil {
+		return *f.Show
+	}
+	return f.T
 }
 
 // errIdle is the wall saying nobody watches it: nothing to draw, ask again.
@@ -153,58 +170,10 @@ func ask(c *http.Client, wall string) (frame, error) {
 	return f, nil
 }
 
-func wave(p, o float64) uint8 {
-	return uint8(127.5 + 127.5*math.Sin(2*math.Pi*(p+o)))
-}
-
-// looks are the colours a tile can draw in, by LOOK's value: blue is the
-// wall's first version and green its second, the two a blue/green rollout
-// is named for; classic is the rainbow the wall drew before them.
-var looks = map[string]bool{"blue": true, "green": true, "classic": true}
-
-// shade is the colour of a point at palette phase p in the tile's look:
-// blue goes from black through deep blue and sky to white and back, green
-// the same through green, and classic cycles the rainbow.
-func shade(look string, p float64) color.RGBA {
-	s := 0.5 + 0.5*math.Sin(2*math.Pi*p)
-	lo, mid, hi := uint8(255*s*s*s*s), uint8(255*s*s), uint8(255*math.Sqrt(s))
-	switch look {
-	case "blue":
-		return color.RGBA{lo, mid, hi, 255}
-	case "green":
-		return color.RGBA{mid, hi, lo, 255}
-	}
-	return color.RGBA{wave(p, 0), wave(p, 0.33), wave(p, 0.67), 255}
-}
-
-// render draws tile's part of the whole wall at time f.T in its look: a
-// zoom into the seahorse valley that starts over every 48 seconds.
-func render(tile int, f frame, look string) *image.RGBA {
-	col, row := tile%f.Cols, tile/f.Cols
-	ww, wh := float64(f.Cols*f.W), float64(f.Rows*f.H)
-	loop := math.Mod(f.T, 48)
-	scale := 3.2 * math.Exp(-0.28*loop) / wh
-	maxIt := 120 + int(40*loop)
-	const cx, cy = -0.743643887037151, 0.131825904205330
-	img := image.NewRGBA(image.Rect(0, 0, f.W, f.H))
-	for y := 0; y < f.H; y++ {
-		for x := 0; x < f.W; x++ {
-			cr := cx + (float64(col*f.W+x)-ww/2)*scale
-			ci := cy + (float64(row*f.H+y)-wh/2)*scale
-			zr, zi, n := 0.0, 0.0, 0
-			for ; n < maxIt && zr*zr+zi*zi < 256; n++ {
-				zr, zi = zr*zr-zi*zi+cr, 2*zr*zi+ci
-			}
-			if n == maxIt {
-				img.SetRGBA(x, y, color.RGBA{A: 255})
-				continue
-			}
-			mu := float64(n) + 1 - math.Log2(math.Log2(math.Sqrt(zr*zr+zi*zi)))
-			p := mu*0.035 + f.T*0.2
-			img.SetRGBA(x, y, shade(look, p))
-		}
-	}
-	return img
+// render draws the tile's square of the show at the frame's moment in its
+// look; sh keeps what a part made at its first frame for the frames after.
+func render(sh *show.Show, tile int, f frame, look string) *image.RGBA {
+	return sh.Render(tile, show.Frame{T: f.at(), Cols: f.Cols, Rows: f.Rows, W: f.W, H: f.H, CutPart: f.CutPart}, look)
 }
 
 // upMs is how long this machine had run when the tile's program started,
@@ -282,7 +251,7 @@ func main() {
 	if look == "" {
 		look = "blue"
 	}
-	if !looks[look] {
+	if !show.Looks[look] {
 		log.Fatalf("scene-agent: LOOK=%s is none of blue, green and classic", look)
 	}
 	host, err := os.Hostname()
@@ -322,6 +291,7 @@ func main() {
 	}
 	log.Printf("tile %d (%s, boot %s, the machine up %d ms): drawing for %s in %s, %d frames drawn on this disk before%s", tile, host, boot, up, wall, look, count, onVol)
 	c := &http.Client{Timeout: 5 * time.Second}
+	sh := new(show.Show)
 	frames, spent, since := 0, time.Duration(0), time.Now()
 	idle := false
 	for {
@@ -345,7 +315,7 @@ func main() {
 			continue
 		}
 		t0 := time.Now()
-		img := render(tile, f, look)
+		img := render(sh, tile, f, look)
 		took := time.Since(t0)
 		next := vcount
 		if next >= 0 {
