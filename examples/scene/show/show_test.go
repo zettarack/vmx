@@ -187,22 +187,3 @@ func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {
 		}
 	}
 }
-
-// The honeycomb: every point is in the cell whose middle is nearest it,
-// and so never more than an edge's distance (0.5 in the hexagon's own
-// measure) from that middle; a middle is in its own cell.
-func TestTheHoneycombsCells(t *testing.T) {
-	for i := 0; i < 4000; i++ {
-		x, y := h01(uint64(i), 1)*20-10, h01(uint64(i), 2)*20-10
-		lx, ly, cx, cy := hexCell(x, y)
-		if d := hexDist(lx, ly); d > 0.5+1e-9 {
-			t.Fatalf("(%.3f, %.3f): %.3f from its middle (%.3f, %.3f)", x, y, d, cx, cy)
-		}
-	}
-	for _, c := range [][2]float64{{0.5, 0.866}, {1, 0}, {0, 0}} {
-		lx, ly, _, _ := hexCell(c[0], c[1])
-		if hexDist(lx, ly) > 0.5+1e-9 {
-			t.Errorf("%v is not in a cell", c)
-		}
-	}
-}

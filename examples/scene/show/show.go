@@ -85,7 +85,7 @@ var rotation = []family{
 	{"shapes", newShapes},
 	{"mandel", newMandel},
 	{"julia", newJulia},
-	{"tunnel", newTunnel},
+	{"vector", newVector},
 	{"plasma", newPlasma},
 }
 

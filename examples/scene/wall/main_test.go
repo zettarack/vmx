@@ -1181,7 +1181,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 			t.Errorf("the page does not have %q", said)
 		}
 	}
-	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "tunnel", "plasma"} {
+	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "vector", "plasma"} {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
 		}
