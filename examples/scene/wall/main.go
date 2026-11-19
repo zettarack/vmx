@@ -200,6 +200,8 @@ type wall struct {
 	showAt   time.Time
 	showHeld bool
 	cut      int64
+	// quiet: the page's text is off, and the tiles' scrollers say nothing.
+	quiet bool
 }
 
 // showNow is the show's clock at now. s.mu is held.
@@ -343,11 +345,11 @@ func (s *wall) frame(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.mu.Lock()
-	at, cut := s.showNow(time.Now()), s.cut
+	at, cut, quiet := s.showNow(time.Now()), s.cut, s.quiet
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"t": time.Since(s.epoch).Seconds(), "show": at, "cut_part": cut, "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
+		"t": time.Since(s.epoch).Seconds(), "show": at, "cut_part": cut, "quiet": quiet, "cols": s.cols, "rows": s.rows, "w": s.w, "h": s.h,
 	}); err != nil {
 		log.Printf("frame: %v", err)
 	}
@@ -356,7 +358,8 @@ func (s *wall) frame(w http.ResponseWriter, r *http.Request) {
 // showDo is the page's controls for the show: next (the next part, from
 // its start), before (the part that plays, from its start, or within its
 // first four seconds the one before it), hold (the clock held, or let run
-// on again) and a family's name (the next part that plays that family).
+// on again), text (the scrollers' text off, or on again) and a family's
+// name (the next part that plays that family).
 // A move lands at a part's start and is told to the tiles as a cut. A
 // word that is none of these is refused, and nothing changes.
 func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
@@ -368,6 +371,11 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 	p := int64(t / show.PartLen)
 	var to int64
 	switch {
+	case what == "text":
+		s.quiet = !s.quiet
+		log.Printf("show: the text %s", map[bool]string{true: "off", false: "on"}[s.quiet])
+		w.WriteHeader(http.StatusNoContent)
+		return
 	case what == "hold":
 		if s.showHeld {
 			s.showAt = now
@@ -391,7 +399,7 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	default:
-		http.Error(w, "the show takes next, before, hold or a family's name", http.StatusNotFound)
+		http.Error(w, "the show takes next, before, hold, text or a family's name", http.StatusNotFound)
 		return
 	}
 	s.showBase, s.showAt, s.cut = math.Max(float64(to)*show.PartLen, 0), now, to
@@ -831,7 +839,7 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 	at := s.showNow(now)
 	part := int64(at / show.PartLen)
 	doc["show"] = map[string]any{"part": part, "family": show.PartName(part), "in_s": at - float64(part)*show.PartLen,
-		"len_s": show.PartLen, "held": s.showHeld, "families": show.Families()}
+		"len_s": show.PartLen, "held": s.showHeld, "text": !s.quiet, "families": show.Families()}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(doc); err != nil {
@@ -1001,7 +1009,7 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 #fams button{padding:4px 9px;font-size:13px}
 #fams button u{text-decoration:none;color:#8d90c4;margin-right:6px}
 #fams button.on{border-color:#3cffb4;color:#fff;box-shadow:inset 0 0 12px #3cffb444}
-#hold.on{border-color:#ffe53c;color:#ffe53c}
+#hold.on,#text.on{border-color:#ffe53c;color:#ffe53c}
 #part{min-width:210px;margin-left:8px;color:#8d90c4;font-size:14px}
 #part b{color:#fff}
 #wall{display:grid;grid-template-columns:repeat(COLS,TWpx);gap:2px;background:#000;padding:2px;border:1px solid #2a2850;user-select:none;-webkit-user-select:none;touch-action:none}
@@ -1059,7 +1067,7 @@ button:disabled{opacity:.35;cursor:default}
 <h1>FIRECRACKER WALL</h1>
 <div id="bar"><span id="live"></span><span id="fps"></span><span id="clock"></span><span id="new"></span><span id="looks"></span></div>
 <div id="host"></div>
-<div id="show"><button id="before" title="this part from its start, or the one before it (left arrow)">Before</button><button id="hold" title="hold the show where it is, or let it run on (space)">Hold</button><button id="next" title="the next part (right arrow)">Next</button><i></i><span id="fams"></span><span id="part"></span></div>
+<div id="show"><button id="before" title="this part from its start, or the one before it (left arrow)">Before</button><button id="hold" title="hold the show where it is, or let it run on (space)">Hold</button><button id="next" title="the next part (right arrow)">Next</button><button id="text" title="the line of text in the picture, off or on (t)">Text off</button><i></i><span id="fams"></span><span id="part"></span></div>
 <div id="wall"></div>
 <div id="dock">
 <div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
@@ -1071,7 +1079,7 @@ button:disabled{opacity:.35;cursor:default}
 <p>One picture, an hour of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
 <h2>The show</h2>
 <p>Ten families of scene, each played for a minute with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the zettarack wordmark, bits, land, day, space, shapes, a Mandelbrot dive, a Julia set, a tunnel and a plasma. The wordmark opens the show and comes back every fifteen minutes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal or a raymarched solid costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Above the wall: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family. The keys do the same: the left and right arrows, space, and 1 to 0 for the families in the order shown. The show's clock is the wall's, so every page open on it sees the same part.</p>
+<p>Above the wall: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; <b>Text off</b> takes the line of text out of the picture, and <b>Text on</b> brings it back. The keys do the same: the left and right arrows, space, t, and 1 to 0 for the families in the order shown. The show's clock is the wall's, so every page open on it sees the same part.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1234,17 +1242,18 @@ if(location.hash==='#info')showInfo(true);
 // family's next part, by button and by key (the arrows, space, and 1 to 0
 // for the families in the order shown); none while a box is being typed in.
 const showTo=what=>fetch('/show/'+encodeURIComponent(what),{method:'POST'});
-$('before').onclick=()=>showTo('before');$('hold').onclick=()=>showTo('hold');$('next').onclick=()=>showTo('next');
+$('before').onclick=()=>showTo('before');$('hold').onclick=()=>showTo('hold');$('next').onclick=()=>showTo('next');$('text').onclick=()=>showTo('text');
 let fams=[];
 function showTick(sh){if(!sh)return;
 if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=String((k+1)%10);b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+' (key '+key+')';b.onclick=()=>showTo(f);return b;}));}
 document.querySelectorAll('#fams button').forEach(b=>b.classList.toggle('on',b.dataset.f===sh.family));
 const s=Math.floor(sh.in_s);$('part').innerHTML='part <b>'+sh.part+'</b> &middot; <b>'+sh.family+'</b> &middot; '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+(sh.held?' &middot; <b>held</b>':'');
-$('hold').classList.toggle('on',sh.held);$('hold').textContent=sh.held?'Run':'Hold';}
+$('hold').classList.toggle('on',sh.held);$('hold').textContent=sh.held?'Run':'Hold';
+$('text').classList.toggle('on',sh.text===false);$('text').textContent=sh.text===false?'Text on':'Text off';}
 document.addEventListener('keydown',e=>{
 if(e.key==='Escape'){if(!info.hidden)showInfo(false);else $('none').onclick();return;}
 if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest?.('input,textarea,select'))return;
-if(e.key==='ArrowRight')showTo('next');else if(e.key==='ArrowLeft')showTo('before');else if(e.key===' ')showTo('hold');
+if(e.key==='ArrowRight')showTo('next');else if(e.key==='ArrowLeft')showTo('before');else if(e.key===' ')showTo('hold');else if(e.key==='t')showTo('text');
 else if(/^[0-9]$/.test(e.key)&&fams[(+e.key+9)%10])showTo(fams[(+e.key+9)%10]);else return;
 e.preventDefault();});
 // The legend's tiles in the info: each picture is a swatch of its look's

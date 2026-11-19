@@ -1166,7 +1166,8 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 	page := w.Body.String()
 	for _, said := range []string{
 		`<button id="before"`, `<button id="hold"`, `<button id="next"`, `<span id="fams">`,
-		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "the left and right arrows, space, and 1 to 0",
+		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, t, and 1 to 0",
+		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
 		"fetch('/show/'+encodeURIComponent(what),{method:'POST'})", "showTick(s.show);",
 	} {
 		if !strings.Contains(page, said) {
@@ -1177,5 +1178,54 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
 		}
+	}
+}
+
+type quietDoc struct {
+	Quiet bool `json:"quiet"`
+}
+
+// The page's Text turns the scrollers' text off for every tile, by the
+// frame they are handed, and on again; the state says which.
+func TestTheTextIsTurnedOffAndOnForEveryTile(t *testing.T) {
+	s := fourTiles()
+	quiet := func() bool {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/frame", nil))
+		var q quietDoc
+		if err := json.Unmarshal(w.Body.Bytes(), &q); err != nil {
+			t.Fatalf("frame: %v: %s", err, w.Body.String())
+		}
+		return q.Quiet
+	}
+	text := func() bool {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/state", nil))
+		var d struct {
+			Show struct {
+				Text *bool `json:"text"`
+			} `json:"show"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil || d.Show.Text == nil {
+			t.Fatalf("state: %v: %s", err, w.Body.String())
+		}
+		return *d.Show.Text
+	}
+	if quiet() || !text() {
+		t.Fatal("a new wall's text is off")
+	}
+	before := showOf(t, s).Part
+	if c := ask(t, s, "POST", "/show/text", ""); c != http.StatusNoContent {
+		t.Fatalf("text: %d", c)
+	}
+	if !quiet() || text() {
+		t.Error("Text off: the tiles are not told, or the state says it is on")
+	}
+	if showOf(t, s).Part != before {
+		t.Error("Text off moved the show")
+	}
+	ask(t, s, "POST", "/show/text", "")
+	if quiet() || !text() {
+		t.Error("Text on again: the tiles are still told it is off")
 	}
 }
