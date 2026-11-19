@@ -117,6 +117,10 @@
 #   Reset the wall  every tile and clone taken away with its volume and the
 #                   picture's own run again from the image on new volumes,
 #                   timed from the press
+#   Shut down       pressed twice: the wall taken away as --remove takes it,
+#                   every tile, clone and volume, the wall and its keeper;
+#                   the images stay, and the page says the wall is gone.
+#                   This script on the host starts it again.
 #
 # THE KEEPER
 # The page is a program in a container and commands nothing; nothing in a
@@ -194,7 +198,7 @@
 #
 # The images come with the script: scene/images holds the archives of
 # the three, scene-agent:18, its next version scene-agent:18-green and
-# scene-wall:28, which it takes with no argument and checks against the
+# scene-wall:29, which it takes with no argument and checks against the
 # digests below, so a clone of the examples, or a host whose installer put
 # them on it, runs the wall with no registry and no network.
 # scene/README.md builds them again from their sources. --from DIR takes
@@ -210,10 +214,10 @@
 #   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:18 NEXT_IMAGE=ghcr.io/you/scene-agent:18-green WALL_IMAGE=ghcr.io/you/scene-wall:28 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:18 NEXT_IMAGE=ghcr.io/you/scene-agent:18-green WALL_IMAGE=ghcr.io/you/scene-wall:29 ./05-demoscene-wall.sh
 #   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:18 \
 #   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:18-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:28 ./05-demoscene-wall.sh
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:29 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -260,11 +264,11 @@ protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
 # The images' digests, the tiles' scene-agent:18 and its second version
-# scene-agent:18-green, and the wall's scene-wall:28,
+# scene-agent:18-green, and the wall's scene-wall:29,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
 agent_digest=sha256:d4786a7db8892efbea2d9ea6b38d6e62615bc9da54d0ece7f078285ce3b12885
-wall_digest=sha256:043ed9835a455d31f99d09b416b360345bb6d382647e287f641a54895b1149cc
+wall_digest=sha256:fb79675b215b173719341b0cb54f8102ebd9f03b2663de20963249191e1fa9e6
 next_digest=sha256:feb8b7aca2a6c2c0ba456f34cded9bb3ff77a7b21a7194f4e26f69d42fdd1c21
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
@@ -284,14 +288,22 @@ if [ "${1:-}" = --from ]; then
 	[ $# -eq 2 ] && [ -n "$2" ] || die "usage: ${0##*/} --from DIR"
 	from=${2%/}
 	shift 2
-	[ -f "$from/scene-agent.tar" ] && [ -f "$from/scene-agent-green.tar" ] && [ -f "$from/scene-wall.tar" ] || die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
+	if ! [ -f "$from/scene-agent.tar" ] || ! [ -f "$from/scene-agent-green.tar" ] || ! [ -f "$from/scene-wall.tar" ]; then
+		# The examples keep the three in scene/images: --from the examples'
+		# own directory found nothing there, and said only that
+		# (2026-11-18); with none, the script takes those beside it.
+		if [ -f "$from/scene/images/scene-agent.tar" ]; then
+			die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar; $from/scene/images does: ${0##*/} with no argument takes those beside it, or --from $from/scene/images"
+		fi
+		die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
+	fi
 	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:18}
 	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:18-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:28}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:29}
 fi
 agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:18}
 next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:18-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:28}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:29}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -318,13 +330,49 @@ quiet() {
 # fact KEY: what the wall's record says of it; nothing when it does not.
 fact() { [ -f "$kept" ] && awk -v k="$1" '$1 == k { print $2 }' "$kept"; }
 
-if [ "${1:-}" = --remove ]; then
-	[ $# -eq 1 ] || die "usage: ${0##*/} --remove"
-	[ -f "$made" ] || die "nothing to remove: $made is not there"
-	# The keeper first, and what it has in hand with it.
-	if systemctl is-active --quiet "$keeper_unit"; then
-		systemctl stop "$keeper_unit" && echo "stopped the keeper ($keeper_unit)"
+# makers: the other copies of this script that made a wall on this host,
+# each by its directory, one a line: the running keeper's (its description
+# names the directory it runs from) and any whose record is under /home,
+# where the examples are kept. A wall is one to a host, as its port and
+# its keeper's name are, and only the copy that made it has its names: the
+# copy in /home/examples said "nothing to remove" while the wall made from
+# /home/show/examples ran (2026-11-18).
+makers() {
+	local d
+	d=$(systemctl show -p Description --value "$keeper_unit" 2>/dev/null || true)
+	{
+		case $d in
+		"the demoscene wall's keeper, /"*)
+			d=${d#"the demoscene wall's keeper, "}
+			if [ -f "$d/.made/05-demoscene-wall.made" ]; then echo "$d"; fi
+			;;
+		esac
+		# A directory find cannot read holds no record this script wrote:
+		# it writes them as root, which reads everything under /home.
+		find /home -maxdepth 4 -path '*/.made/05-demoscene-wall.made' -printf '%h\n' 2>/dev/null | sed 's|/\.made$||' || true
+	} | { grep -vxF -- "$here" || true; } | sort -u
+}
+
+# by_another WHAT: refuse WHAT, naming the command that takes away the
+# wall another copy made here, when one did; otherwise nothing.
+by_another() {
+	local others
+	others=$(makers)
+	[ -n "$others" ] || return 0
+	if [ "$(wc -l <<<"$others")" -eq 1 ]; then
+		die "$1: the wall on this host was made by another copy of this script, and only it knows the wall's names: $others/${0##*/} --remove takes it away"
 	fi
+	die "$1: another copy of this script made the wall on this host, and only it knows the wall's names; the copies with a wall's record: $(paste -sd ' ' <<<"$others") (the one that made this wall takes it away with --remove)"
+}
+
+# remove_all [keeper]: the wall this script made taken away by its record:
+# every tile, clone and volume it names and the wall, sixteen at a time;
+# the images stay. --remove calls it once the keeper is stopped; the
+# keeper calls it itself (keeper) when the page asks for a shutdown, once
+# what it had in hand is done.
+remove_all() {
+	local agent next wall n v k running there vthere left present volumes
+	local -a names all cleft vleft
 	# The images the wall was made from, as its record names them.
 	agent=$(fact agent || true)
 	next=$(fact next || true)
@@ -337,10 +385,14 @@ if [ "${1:-}" = --remove ]; then
 	mapfile -t names <"$made"
 	rm -f "$made" "$kept"
 	flock -u 8
-	for _ in $(seq 1 150); do
-		pgrep -f -- '05-demoscene-wall\.sh --keep-here$' >/dev/null || break
-		sleep 0.2
-	done
+	# The keeper itself, shutting the wall down, waits for nobody: it may be
+	# the keeper in a terminal.
+	if [ "${1:-}" != keeper ]; then
+		for _ in $(seq 1 150); do
+			pgrep -f -- '05-demoscene-wall\.sh --keep-here$' >/dev/null || break
+			sleep 0.2
+		done
+	fi
 	# Sixteen at a time, newest first: a clone made from a tile goes before
 	# the tile, which is not removed while a clone stands on its disk; one
 	# refused for that, its clone still going, goes in the next round.
@@ -413,6 +465,19 @@ if [ "${1:-}" = --remove ]; then
 	else
 		echo "The images stay: vmx container list --json names them, and vmx container image-remove takes one away."
 	fi
+}
+
+if [ "${1:-}" = --remove ]; then
+	[ $# -eq 1 ] || die "usage: ${0##*/} --remove"
+	if [ ! -f "$made" ]; then
+		by_another "nothing to remove here ($here made no wall)"
+		die "nothing to remove: $made is not there"
+	fi
+	# The keeper first, and what it has in hand with it.
+	if systemctl is-active --quiet "$keeper_unit"; then
+		systemctl stop "$keeper_unit" && echo "stopped the keeper ($keeper_unit)"
+	fi
+	remove_all
 	exit 0
 fi
 
@@ -1095,6 +1160,15 @@ if [ "${1:-}" = --keep-here ]; then
 			fi
 			doc=
 		fi
+		# Shut down, asked on the page: what the keeper has in hand finishes,
+		# then the wall goes as --remove takes it, and the keeper ends.
+		if [ "$(jq -r '.shutdown // false' <<<"$doc" 2>/dev/null)" = true ]; then
+			echo "   shutdown: asked on the page: the keeper takes the wall away"
+			wait
+			remove_all keeper
+			echo "   shutdown: done; the keeper ends"
+			exit 0
+		fi
 		if [ "$(jq -r '.reset // false' <<<"$doc" 2>/dev/null)" = true ] && [ ! -e "$busy/.reset" ]; then
 			: >"$busy/.reset"
 			reset_wall </dev/null &
@@ -1204,7 +1278,10 @@ if [ -s "$orphans" ]; then
 fi
 present=$(vmx container list --json | jq -r '.[].name')
 volumes=$(vmx container volumes --json | jq -r '.[]?.name')
-! grep -qx scene-wall <<<"$present" || die "a container named scene-wall is there already"
+if grep -qx scene-wall <<<"$present"; then
+	by_another "no wall made"
+	die "a container named scene-wall is there already"
+fi
 for i in $(seq 0 $((cols * rows - 1))); do
 	n=$(printf 'tile-%02d' "$i")
 	! grep -qx -- "$n" <<<"$present" || die "a container named $n is there already"

@@ -124,6 +124,7 @@ In short:
 | Clone | each clone goes on from the tile's | the same, on the clone's copy |
 | Remove | gone | gone |
 | Reset the wall | starts again from nothing | starts again, on a new volume |
+| Shut down | gone, with the wall | gone, with the wall |
 
 ## Choose tiles, then a button
 
@@ -142,6 +143,7 @@ wall do their verb to every tile chosen, at once:
 | **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk and its volume as they were; the tile says how long its place was without a picture |
 | **Clone** N | as many new microVMs from its disk and its volume as they are, at one moment, as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, its volume one too (vmx names the copy NEW-VOLUME), so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the counts it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
 | **Remove** | the tile taken away with its volume and their snapshots; its place stays empty. A tile a clone stands on is not removed until the clone is, and a volume a clone's copy stands on stays until the copy goes: the keeper takes it away then |
+| **Shut down** | pressed twice: the wall taken away as the script's `--remove` takes it, every tile, clone and volume, the wall and its keeper; the images stay, and the page says the wall is gone; the script on the host starts it again |
 | **Reset the wall** | every tile and clone taken away with its volume and the picture's own run again from the image on new volumes; the clock says how long the whole wall took, from the press |
 
 Each tile says on the page what became of it, and a press made while
@@ -207,7 +209,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:18`, `scene-agent:18-green` and `scene-wall:28`, the
+archives, `scene-agent:18`, `scene-agent:18-green` and `scene-wall:29`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -230,10 +232,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
 podman build -f Containerfile.agent -t scene-agent:18 .
 podman build -f Containerfile.green -t scene-agent:18-green .
-podman build -f Containerfile.wall -t scene-wall:28 .
+podman build -f Containerfile.wall -t scene-wall:29 .
 podman save --format oci-archive -o scene-agent.tar scene-agent:18
 podman save --format oci-archive -o scene-agent-green.tar scene-agent:18-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:28
+podman save --format oci-archive -o scene-wall.tar scene-wall:29
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -247,7 +249,7 @@ above.
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:18 \
 NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:18-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:28 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:29 \
 ./05-demoscene-wall.sh
 ```
 

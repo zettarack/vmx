@@ -46,6 +46,7 @@ type acts struct {
 		At   string `json:"at"`
 	} `json:"acts"`
 	Reset    bool `json:"reset"`
+	Shutdown bool `json:"shutdown"`
 	Protocol int  `json:"protocol"`
 }
 
@@ -1372,5 +1373,64 @@ func TestTheExtrasAreTheWallsAndTheTilesAreTold(t *testing.T) {
 	on(show.Extras...)
 	if sh := showOf(t, s); sh.Len != show.LenOf(sh.Part) {
 		t.Errorf("the state says part %d is %v s long, the show %v", sh.Part, sh.Len, show.LenOf(sh.Part))
+	}
+}
+
+// Shut down is the page asking for the wall to go: POST /shutdown is taken,
+// twice as once; the keeper is told with what it asks for, and the state
+// says it to every page; from then on the wall takes no verb and no reset;
+// a GET asks nothing. The page has the button, its second press, and its
+// word for a wall gone.
+func TestShutDownIsAskedOnceAndTheKeeperIsTold(t *testing.T) {
+	s := fourTiles()
+	stateShut := func() bool {
+		t.Helper()
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/state", nil))
+		var d struct {
+			Shutdown bool `json:"shutdown"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+			t.Fatalf("state: %v", err)
+		}
+		return d.Shutdown
+	}
+	if askedOf(t, s).Shutdown || stateShut() {
+		t.Fatal("a new wall says it is shutting down")
+	}
+	if c := ask(t, s, "GET", "/shutdown", ""); c == http.StatusNoContent || askedOf(t, s).Shutdown {
+		t.Fatalf("a GET asked for the shutdown (%d)", c)
+	}
+	if c := ask(t, s, "POST", "/do/snapshot", "[1]"); c != http.StatusNoContent {
+		t.Fatalf("a verb before the shutdown: %d", c)
+	}
+	for k := 0; k < 2; k++ {
+		if c := ask(t, s, "POST", "/shutdown", ""); c != http.StatusNoContent {
+			t.Fatalf("shutdown, press %d: %d", k+1, c)
+		}
+	}
+	if !askedOf(t, s).Shutdown || !stateShut() {
+		t.Fatal("asked for, the shutdown is not told to the keeper or the page")
+	}
+	if c := ask(t, s, "POST", "/do/kill", "[2]"); c != http.StatusConflict {
+		t.Errorf("a verb after the shutdown: %d, want 409", c)
+	}
+	if c := ask(t, s, "POST", "/reset", ""); c != http.StatusConflict {
+		t.Errorf("a reset after the shutdown: %d, want 409", c)
+	}
+	if askedOf(t, s).Reset {
+		t.Error("a reset was asked after the shutdown")
+	}
+	w := httptest.NewRecorder()
+	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	for _, said := range []string{
+		`<button id="shut"`, "armed=setTimeout(disarm,4000)", "fetch('/shutdown',{method:'POST'})",
+		"held=!!s.reset||!!s.shutdown;", "'shutting down: the keeper takes the wall away'",
+		"the wall is shut down: <b>./05-demoscene-wall.sh</b> on the host starts it again", "<li><b>Shut down</b>, pressed twice",
+	} {
+		if !strings.Contains(page, said) {
+			t.Errorf("the page does not have %q", said)
+		}
 	}
 }

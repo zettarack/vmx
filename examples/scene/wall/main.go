@@ -181,6 +181,10 @@ type wall struct {
 	phase            string
 	phaseAt, pressed time.Time
 	era              int
+	// shut is when the page asked for the wall to be shut down, zero when
+	// it has not: the keeper takes the wall away then, as the script's
+	// --remove does, and ends; the wall takes no verb and no reset after.
+	shut time.Time
 	// host is what the keeper last said of the host, hostAt when; nil
 	// until it has.
 	host   *hostNow
@@ -599,6 +603,10 @@ func (s *wall) do(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "the wall is being made again", http.StatusConflict)
 		return
 	}
+	if !s.shut.IsZero() {
+		http.Error(w, "the wall is shutting down", http.StatusConflict)
+		return
+	}
 	for _, i := range which {
 		if i < 0 || i >= len(s.tiles) {
 			http.Error(w, "no such tile: "+strconv.Itoa(i), http.StatusNotFound)
@@ -656,12 +664,13 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	reset := s.phase == "asked"
+	shut := !s.shut.IsZero()
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	// Whether somebody watches: the keeper looks for tiles that went, and
 	// says what the host holds, less often while nobody does.
 	watched := time.Since(s.viewed) <= s.viewFor
-	if err := json.NewEncoder(w).Encode(map[string]any{"protocol": protocol, "acts": acts, "reset": reset, "watched": watched, "snaps": snaps}); err != nil {
+	if err := json.NewEncoder(w).Encode(map[string]any{"protocol": protocol, "acts": acts, "reset": reset, "shutdown": shut, "watched": watched, "snaps": snaps}); err != nil {
 		log.Printf("asked: %v", err)
 	}
 }
@@ -742,9 +751,28 @@ func (s *wall) reset(w http.ResponseWriter, _ *http.Request) {
 	now := time.Now()
 	s.mu.Lock()
 	s.expire(now)
+	if !s.shut.IsZero() {
+		s.mu.Unlock()
+		http.Error(w, "the wall is shutting down", http.StatusConflict)
+		return
+	}
 	if s.phase == "" {
 		s.phase, s.phaseAt, s.pressed = "asked", now, now
 		log.Printf("reset: asked")
+	}
+	s.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// shutdown is the page asking for the wall to be taken away: every tile,
+// clone and volume, the wall itself and its keeper, as the script's
+// --remove takes them; the images stay. The keeper is told with what it
+// asks for and does it. Asked twice, it is asked once.
+func (s *wall) shutdown(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	if s.shut.IsZero() {
+		s.shut = time.Now()
+		log.Printf("shutdown: asked: the keeper takes the wall away")
 	}
 	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
@@ -867,7 +895,7 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 	doc := map[string]any{"tiles": out, "live": live, "up": up, "fps": float64(n) / liveFor.Seconds(),
 		"since_s": now.Sub(s.start).Seconds(), "full_s": s.full.Seconds(), "full_n": s.fullN,
 		"replaced": s.replaced, "keeper": !s.watched.IsZero() && now.Sub(s.watched) <= keeperFor,
-		"era": s.era, "reset": s.phase, "reset_s": now.Sub(s.phaseAt).Seconds(), "page": s.pageID}
+		"era": s.era, "reset": s.phase, "reset_s": now.Sub(s.phaseAt).Seconds(), "shutdown": !s.shut.IsZero(), "page": s.pageID}
 	if fresh {
 		doc["host"] = map[string]any{"tiles": s.host.Tiles, "memory": s.host.Memory, "copies": s.host.Copies,
 			"disk": s.host.Disk, "volumes": s.host.Volumes, "age_ms": now.Sub(s.hostAt).Milliseconds()}
@@ -1009,6 +1037,7 @@ func (s *wall) routes() *http.ServeMux {
 	mux.HandleFunc("POST /acting/{i}", s.acting)
 	mux.HandleFunc("POST /did/{i}", s.did)
 	mux.HandleFunc("POST /reset", s.reset)
+	mux.HandleFunc("POST /shutdown", s.shutdown)
 	mux.HandleFunc("POST /reset/down", s.down)
 	mux.HandleFunc("POST /reset/up", s.up)
 	mux.HandleFunc("POST /host", s.hostSays)
@@ -1096,6 +1125,8 @@ button{background:#151330;color:#cfd2ff;border:1px solid #3a3870;border-radius:3
 button:hover:not(:disabled){border-color:#ff3cac;color:#fff}
 button:disabled{opacity:.35;cursor:default}
 #reset{border-color:#8a3a62}
+#shut{border-color:#8a3a62}
+#shut.armed{background:#8a3a62;color:#fff}
 #count{width:5.5em;background:#0b0a16;color:#fff;border:1px solid #3a3870;border-radius:3px;padding:6px 6px;font:inherit;margin-left:-4px}
 #count.bad{border-color:#ff5c7a}
 #hint{min-height:18px;font-size:13px;color:#8d90c4}
@@ -1126,7 +1157,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="panel" hidden>
 <div id="show"><button id="before" title="this part from its start, or the one before it (left arrow)">Before</button><button id="hold" title="hold the show where it is, or let it run on (space)">Hold</button><button id="next" title="the next part (right arrow)">Next</button><i></i><span id="fams"></span><span id="part"></span></div>
 <div id="xtras"></div>
-<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
+<div id="tools"><span id="chosen"></span><button data-do="snapshot">Snapshot</button><button data-do="restore">Restore</button><button data-do="rebuild">Rebuild</button><button data-do="update">Update</button><button data-do="rollback">Roll back</button><button data-do="kill">Kill</button><button data-do="clone">Clone</button><input id="count" type="number" min="1" max="MAXTILES" value="3" aria-label="how many clones of each tile chosen"><button data-do="remove">Remove</button><i></i><button id="all">All</button><button id="none">None</button><i></i><button id="reset">Reset the wall</button><button id="shut" title="take the wall away: every tile, clone and volume, this wall and its keeper; press twice">Shut down</button><button id="infobtn" aria-expanded="false" aria-controls="info">info</button></div>
 <div id="snaps"></div>
 </div>
 <div id="strip"><button id="text" title="the page's text: the title, the lines above the wall, every tile's name and counts, off or on (t); the picture's own words stay">Text off</button><button id="cfg" aria-expanded="false" aria-controls="panel" title="the show's and the tiles' buttons, open or closed (c)">cfg</button></div>
@@ -1214,6 +1245,7 @@ button:disabled{opacity:.35;cursor:default}
 <li><b>Clone</b> makes as many new microVMs from the tile's disk and volume as they are, at one moment, as the number beside it says, for each tile chosen: each a ZFS clone, its volume one too, so it copies nothing and takes no space until it writes, and each draws a new place below the picture, counting on from the counts it was cloned with. The wall takes MAXTILES places; the host's memory and the addresses its network gives out end most walls sooner, and the tile says which. The box beside the button turns red when it holds anything but a whole number from 1 to MAXTILES.</li>
 <li><b>Remove</b> takes the tile away with its volume and their snapshots, and its place stays empty.</li>
 <li><b>Reset the wall</b> takes every tile and every clone away with its volume and runs the picture's own tiles again from the image on new volumes, and the clock above says how long the whole wall took, from the press.</li>
+<li><b>Shut down</b>, pressed twice, takes the wall away: every tile, clone and volume, this wall and its keeper, as the script's --remove does; the images stay. The page goes with the wall, and says so; the script on the host starts it again.</li>
 </ul>
 <h2>The line under the clock</h2>
 <p>What the host holds of the wall, as the keeper reads it from the host every few seconds: how many of its microVMs run, the memory they take (each microVM's resident memory on the host), and their disks counted two ways: as full copies would take them, and as ZFS keeps them, each tile's own changes and the image they all share counted once; then their volumes, as ZFS keeps them, which is mostly the room it sets aside for each, written to or not. Each tile shows the disk it holds of its own beside its name.</p>
@@ -1251,6 +1283,11 @@ fetch(path,{method:'POST',body:JSON.stringify(chosen)});if(what==='remove')chose
 $('all').onclick=()=>{tiles.forEach((o,i)=>choose(i,true));tools();};
 $('none').onclick=()=>{[...sel].forEach(i=>choose(i,false));tools();};
 $('reset').onclick=()=>{fetch('/reset',{method:'POST'});};
+// Shut down: a first press arms it for four seconds, a second takes the
+// wall away; only the script on the host brings it back.
+let armed=0,shutSeen=false;
+function disarm(){clearTimeout(armed);armed=0;$('shut').classList.remove('armed');$('shut').textContent='Shut down';}
+$('shut').onclick=()=>{if(!armed){$('shut').classList.add('armed');$('shut').textContent='Sure? Shut down';armed=setTimeout(disarm,4000);return;}disarm();fetch('/shutdown',{method:'POST'});};
 // The one tile chosen: its snapshots, oldest first, as the keeper lists
 // them, each a button that puts the tile back to that one; the newer ones
 // go with it, as a restore's do.
@@ -1294,17 +1331,21 @@ o.c.textContent=t.frames?(t.vol_frames!==undefined?'disk '+t.frames.toLocaleStri
 const[text,kind]=label(t,i,mixed);o.l.textContent=text;
 o.d.classList.toggle('none',t.v===0);o.d.classList.toggle('dead',t.v>0&&t.age_ms>2000);o.d.classList.toggle('asked',t.asked);
 for(const k of ['busy','fresh','said'])o.d.classList.toggle(k,kind===k);});
-held=!!s.reset;
+held=!!s.reset||!!s.shutdown;if(s.shutdown)shutSeen=true;
 $('live').innerHTML='<b>'+s.live+'</b> of '+s.tiles.length+' microVMs live';$('fps').innerHTML='<b>'+s.fps.toFixed(1)+'</b> frames a second';
-$('clock').innerHTML=s.reset==='asked'?'a reset is asked':s.reset==='down'?'taking the wall down, <b>'+s.reset_s.toFixed(1)+' s</b>':s.reset==='up'?'the wall comes back: <b>'+s.up+'</b> of '+s.tiles.length+', <b>'+s.since_s.toFixed(1)+' s</b>':s.full_s>0?'all '+s.full_n+' up in <b>'+s.full_s.toFixed(1)+' s</b>':'<b>'+s.since_s.toFixed(1)+' s</b> since the start';
+$('clock').innerHTML=s.shutdown?'shutting down: the keeper takes the wall away':s.reset==='asked'?'a reset is asked':s.reset==='down'?'taking the wall down, <b>'+s.reset_s.toFixed(1)+' s</b>':s.reset==='up'?'the wall comes back: <b>'+s.up+'</b> of '+s.tiles.length+', <b>'+s.since_s.toFixed(1)+' s</b>':s.full_s>0?'all '+s.full_n+' up in <b>'+s.full_s.toFixed(1)+' s</b>':'<b>'+s.since_s.toFixed(1)+' s</b> since the start';
 $('new').innerHTML=s.replaced>0?'<b>'+s.replaced+'</b> replaced':'';
 $('looks').innerHTML=kinds.map(k=>'<b>'+by[k]+'</b> '+k).join(' &middot; ');
 const h=s.host;$('host').innerHTML=h?'<b>'+h.tiles+'</b> microVMs &middot; <b>'+size(h.memory)+'</b> of memory &middot; their disks: <b>'+size(h.copies)+'</b> as full copies, <b>'+size(h.disk)+'</b> as ZFS keeps them'+(h.volumes?' &middot; their volumes: <b>'+size(h.volumes)+'</b>':''):'';
-$('reset').disabled=!!s.reset;$('reset').textContent=s.reset?'Resetting':'Reset the wall';
+$('reset').disabled=!!s.reset||!!s.shutdown;$('reset').textContent=s.reset?'Resetting':'Reset the wall';
+if(s.shutdown){$('shut').disabled=true;$('shut').textContent='Shutting down';}
 showTick(s.show);
 const waiting=s.reset==='asked'||s.tiles.some(t=>t.act||t.asked);
 $('hint').innerHTML=!s.keeper&&waiting?'<b>no keeper is watching</b>: nothing asked here is done until the host runs 05-demoscene-wall.sh --keep':'';
-tools();}catch(e){}setTimeout(tick,100);}
+tools();}catch(e){
+// The wall gone after a shutdown: the page says so, and asks on, so a
+// wall started again on the host brings the page back by itself.
+if(shutSeen)$('clock').innerHTML='the wall is shut down: <b>./05-demoscene-wall.sh</b> on the host starts it again';}setTimeout(tick,shutSeen?1000:100);}
 const ib=$('infobtn'),info=$('info');
 function showInfo(on){info.hidden=!on;ib.setAttribute('aria-expanded',on?'true':'false');if(on)info.scrollIntoView({behavior:'smooth',block:'start'});}
 ib.onclick=()=>showInfo(info.hidden);
