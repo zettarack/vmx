@@ -321,6 +321,21 @@ address() { vmx container list --json | jq -r --arg n "$1" '.[] | select(.name =
 # its own name. has_vol VOLUME: vmx has a volume of that name.
 vol_of() { local v=; if [ -f "$vols" ]; then v=$(awk -v n="$1" '$1 == n { print $2; exit }' "$vols"); fi; echo "${v:-$1}"; }
 has_vol() { vmx container volumes --json | jq -e --arg v "$1" 'any(.[]?; .name == $v)' >/dev/null; }
+# take_copies VOLUME: the copies vmx made of VOLUME for clones (NEW-VOLUME
+# by its rule, NEW a place of the wall's) that no container has, taken away
+# deepest first: vmx keeps a volume while a copy stands on it. For a copy no
+# record names (a keeper stopped while vmx made it, 2026-11-20). Never
+# while a wall runs: a tile being made again has no container for a moment.
+take_copies() {
+	local list c
+	# vmx's list not read: the volume's own removal after fails, and says so.
+	list=$(vmx container volumes --json) || return 0
+	while read -r c; do
+		[ -n "$c" ] || continue
+		# One that will not go is said by its source's refusal after.
+		if vmx container volume-remove "$c" >/dev/null 2>&1; then echo "   $c, a clone's copy no container had, on $1: taken away"; fi
+	done < <(jq -r --arg v "$1" '.[]? | select((.container // "") == "" and (.name | test("^tile-[0-9]+-")) and (.name | endswith("-" + $v))) | .name' <<<"$list" | awk '{ print length($0), $0 }' | sort -rn | cut -d' ' -f2-)
+}
 # quiet ARGS...: vmx ARGS, what it says of each step kept back unless it
 # fails; then all of it is shown. A new container an older vmx refused
 # because another asked for at the same moment took the uid it planned
@@ -442,12 +457,24 @@ remove_all() {
 		[ ${#names[@]} -gt 0 ] || break
 	done
 	rm -f "$left"
+	# A volume a clone's copy still stands on, the copy no container has
+	# and no record names: the copies first, then the volume, now that the
+	# wall's containers are gone (2026-11-20).
+	for n in "${names[@]}"; do
+		v=$(vol_of "$n")
+		if grep -qx -- "$n" <<<"$present" || ! grep -qx -- "$v" <<<"$volumes"; then continue; fi
+		take_copies "$v"
+		# A failure is said below, as a volume not removed.
+		vmx container volume-remove "$v" >/dev/null 2>&1 || true
+	done
+	volumes=$(vmx container volumes --json | jq -r '.[]?.name')
 	# The volumes tiles left behind, now that the copies that held them
 	# are gone.
 	if [ -s "$orphans" ]; then
 		while read -r v; do
 			grep -qx -- "$v" <<<"$volumes" || continue
 			vthere=$((vthere + 1))
+			take_copies "$v"
 			# A failure is said below, as a volume not removed.
 			vmx container volume-remove "$v" >/dev/null 2>&1 || true
 		done <"$orphans"
@@ -1083,6 +1110,15 @@ if [ "${1:-}" = --keep-here ]; then
 	clone_into() {
 		local src=$1 new=$2 stop=$3 i line state addr t v
 		i=$((10#${new#tile-}))
+		# Its volume will be vmx's copy of its source's, NEW-VOLUME by
+		# vmx's own rule: recorded before the clone is asked, so that a
+		# keeper stopped while vmx makes it leaves the copy in the record
+		# for --remove. Recorded after, a demo stopped mid-clone left the
+		# copies standing on their sources' volumes, and the next wall
+		# would not start (2026-11-20: tile-52-tile-12 to tile-58-tile-18,
+		# "a volume named tile-12 is there already"). Corrected below from
+		# vmx's list; a name recorded for no volume is passed over.
+		vol_set "$new" "$new-$(vol_of "$src")"
 		if ! try container clone "$src" "$new"; then
 			list_drop "$new"
 			[ -s "$stop" ] || echo "$why" >"$stop"
@@ -1615,8 +1651,9 @@ fi
 mkdir -p "$(dirname "$made")"
 # Before anything is made: the volumes a wall before this one left behind
 # (its --remove could not take them, a vmx whose removal kept a container's
-# snapshots on them, for one) taken away now, those that will not go kept
-# for the next time; then no container or volume of a name the wall will
+# snapshots on them, for one) taken away now, with any clone's copy that no
+# container has standing on them, those that will not go kept for the next
+# time; then no container or volume of a name the wall will
 # use may be there, which it would run beside or count on. A wall refused
 # here has made nothing (2026-11-18: one refused after the wall's own
 # container was run left half a wall).
@@ -1624,7 +1661,7 @@ if [ -s "$orphans" ]; then
 	: >"$orphans.new"
 	while read -r v; do
 		[ -n "$v" ] || continue
-		if vmx container volume-remove "$v" >/dev/null 2>&1; then
+		if vmx container volume-remove "$v" >/dev/null 2>&1 || { take_copies "$v" && vmx container volume-remove "$v" >/dev/null 2>&1; }; then
 			echo "   the volume $v the wall before left behind is taken away"
 		elif vmx container volumes --json | jq -e --arg v "$v" 'any(.[]?; .name == $v)' >/dev/null; then
 			echo "$v" >>"$orphans.new"
