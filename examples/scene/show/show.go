@@ -9,9 +9,11 @@
 // minutes, while it scrolled what vmx does in one line); between, the
 // families of
 // the rotation each play once a round, in an order of the round's own and with a seed of their own: a
-// landscape at dawn in one round, a canyon by moonlight in the next. A tile
-// changes part at its own moment, the top left first, with a flash, so the
-// change crosses the wall from machine to machine.
+// landscape at dawn in one round, a canyon by moonlight in the next. When a
+// part ends, every tile changes at a moment of its own, in an order the
+// next part picks (moment): its screen shuts to a line of light and opens
+// on the new part, so the change is forty machines changing and not one
+// picture. A part the controls move to changes every tile at once.
 //
 // A scene is light; the tile's look makes it colour: blue and green, the
 // wall's two versions, each one ramp from black through its colour to white
@@ -74,11 +76,48 @@ func PartAt(t float64) (int64, float64) {
 }
 
 // wipe is how long a change of part takes to cross the wall; flashFor is
-// how long a tile's flash lasts when it changes.
+// how long a tile's flash lasts when a cut changes it; closeFor and openFor
+// how long a tile's screen takes to close to a line of light on the part
+// ending and to open again on the next.
 const (
-	wipe     = 2.4
+	wipe     = 3.0
 	flashFor = 0.45
+	closeFor = 0.35
+	openFor  = 0.5
 )
+
+// moment is when place (col, row) makes part p's change, 0 to 1 of the
+// wipe. Each part has a choreography of its own, which every tile works out
+// for itself from the part's number, so the forty change in step without a
+// word between them: a ripple from one tile, every tile its own moment, a
+// sweep across, a sweep down, the board's two colours one after the other,
+// the middle out. A clone's place below the picture keeps the moment of
+// the row it repeats. (2026-11-19, the operator: "most of the charm of this
+// is 40 windows working together .. the transitions have to reflect that";
+// one diagonal wipe read as one picture changing.)
+func moment(p int64, col, row, cols, rows int) float64 {
+	cols, rows = max(cols, 1), max(rows, 1)
+	row %= rows
+	s := mix64(uint64(p)*0x9e3779b97f4a7c15 + 0x7a3d)
+	c, r := float64(col), float64(row)
+	cw, rh := float64(max(cols-1, 1)), float64(max(rows-1, 1))
+	switch s % 6 {
+	case 0:
+		oc, or := float64((s>>8)%uint64(cols)), float64((s>>20)%uint64(rows))
+		far := math.Max(math.Max(math.Hypot(oc, or), math.Hypot(cw-oc, or)), math.Max(math.Hypot(oc, rh-or), math.Hypot(cw-oc, rh-or)))
+		return math.Hypot(c-oc, r-or) / math.Max(far, 1)
+	case 1:
+		return float64(mix64(s+uint64(row*cols+col)+1)%1000) / 999
+	case 2:
+		return c / cw
+	case 3:
+		return r / rh
+	case 4:
+		return 0.5*float64((col+row)%2) + 0.5*c/cw
+	default:
+		return math.Hypot(c-cw/2, r-rh/2) / math.Max(math.Hypot(cw/2, rh/2), 1)
+	}
+}
 
 // Frame is what a tile knows of a moment: the show's clock, in seconds
 // since the show began, and the picture's shape. CutPart is the part the
@@ -134,6 +173,9 @@ var rotation = []family{
 	{"blackhole", newBlackhole},
 	{"plasma", newPlasma},
 	{"cube", newCube},
+	{"stone", newStone},
+	{"wood", newWood},
+	{"gems", newGems},
 }
 
 // PartName is the name of the family part p plays, for a log or a page.
@@ -152,9 +194,14 @@ func Families() []string {
 	return n
 }
 
+// Reach is how many parts ahead NextOf must look to find any family: two
+// rounds of the rotation (a family first in one and last in the next) with
+// an intro after every two scenes, and a margin. Fixed counts were sized
+// for ten families and missed some when the show grew (2026-11-19).
+func Reach() int { return 3*len(rotation) + 6 }
+
 // NextOf is the first part after p that plays the family named name, or
-// -1 when none does within limit parts (a round plays every family, an
-// intro after every two, so thirty finds any of them).
+// -1 when none does within limit parts; Reach() finds any of them.
 func NextOf(p int64, name string, limit int) int64 {
 	for q := p + 1; q <= p+int64(limit); q++ {
 		if PartName(q) == name {
@@ -214,16 +261,78 @@ func (s *Show) Render(place int, f Frame, look string) *image.RGBA {
 	col, row := place%f.Cols, place/f.Cols
 	t := math.Max(f.T, 0)
 	p, local := PartAt(t)
-	// The tile's own moment of change: the top left first, the bottom
-	// right last, a clone's place below the picture with the last row.
-	at := float64(col+min(row, f.Rows-1)) / float64(max(f.Cols+f.Rows-2, 1)) * wipe
-	flash := 0.0
-	if p > 0 && local < at && f.CutPart != p {
-		p, local = p-1, local+LenOf(p-1)
-	} else if p > 0 && local >= at && local-at < flashFor {
-		flash = 1 - (local-at)/flashFor
+	// The tile's own moment of change, in this part's choreography.
+	at := moment(p, col, row, f.Cols, f.Rows) * wipe
+	if p > 0 && f.CutPart == p {
+		// A cut: every tile changes at once, a flash alone crossing the wall.
+		flash := 0.0
+		if local >= at && local-at < flashFor {
+			flash = 1 - (local-at)/flashFor
+		}
+		return s.draw(img, col, row, f, p, local, flash, look)
 	}
-	return s.draw(img, col, row, f, p, local, flash, look)
+	if p > 0 && local < at {
+		// Its moment not come: the part before goes on, its screen closing
+		// to a line in the last closeFor before the moment.
+		s.draw(img, col, row, f, p-1, local+LenOf(p-1), 0, look)
+		if at-local < closeFor {
+			shut(img, 1-(at-local)/closeFor)
+		}
+		return img
+	}
+	s.draw(img, col, row, f, p, local, 0, look)
+	if p > 0 && local-at < openFor {
+		shut(img, 1-(local-at)/openFor)
+	}
+	return img
+}
+
+// shut closes a tile's screen toward a line across its middle: phase 0
+// open, 1 shut, the whole picture squeezed into the band left open, and a
+// line of light across the middle as it closes. A window switching, one
+// machine at a time.
+func shut(img *image.RGBA, phase float64) {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if phase <= 0 || w < 1 || h < 1 {
+		return
+	}
+	e := math.Min(phase, 1)
+	e = e * e * (3 - 2*e)
+	band, mid := (1-e)*float64(h), float64(h)/2
+	src := append([]uint8(nil), img.Pix...)
+	for y := 0; y < h; y++ {
+		d := float64(y) + 0.5 - mid
+		in := band >= 1 && math.Abs(d) <= band/2
+		sy := 0
+		if in {
+			sy = min(max(int(mid+d*float64(h)/band), 0), h-1)
+		}
+		for x := 0; x < w; x++ {
+			o, so := y*img.Stride+x*4, sy*img.Stride+x*4
+			if !in {
+				img.Pix[o], img.Pix[o+1], img.Pix[o+2] = 0, 0, 0
+				continue
+			}
+			img.Pix[o], img.Pix[o+1], img.Pix[o+2] = src[so], src[so+1], src[so+2]
+		}
+	}
+	if e <= 0.5 {
+		return
+	}
+	l := (e - 0.5) / 0.5
+	for _, y := range []int{int(mid) - 1, int(mid)} {
+		if y < 0 || y >= h {
+			continue
+		}
+		for x := 0; x < w; x++ {
+			k := l * math.Sqrt(math.Max(0, 1-math.Abs(float64(x)+0.5-float64(w)/2)/(float64(w)/2)))
+			o := y*img.Stride + x*4
+			for c := 0; c < 3; c++ {
+				img.Pix[o+c] = uint8(math.Min(255, float64(img.Pix[o+c])+k*(255-float64(img.Pix[o+c]))))
+			}
+		}
+	}
 }
 
 // draw draws part p at local seconds into it on the tile at (col, row) of

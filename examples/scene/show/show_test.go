@@ -39,7 +39,7 @@ func TestTheScheduleKeepsItsPromises(t *testing.T) {
 
 func TestFamiliesAndNextOf(t *testing.T) {
 	f := Families()
-	if len(f) != 11 || f[0] != "vmx" {
+	if len(f) != 14 || f[0] != "vmx" {
 		t.Fatalf("families: %v", f)
 	}
 	seen := map[string]bool{}
@@ -51,7 +51,7 @@ func TestFamiliesAndNextOf(t *testing.T) {
 	}
 	for p := int64(0); p < 120; p++ {
 		for _, n := range f {
-			q := NextOf(p, n, 30)
+			q := NextOf(p, n, Reach())
 			if q <= p || PartName(q) != n {
 				t.Fatalf("after part %d the next %s is part %d (%s)", p, n, q, PartName(q))
 			}
@@ -96,10 +96,10 @@ func litPixels(img *image.RGBA) int {
 // way and at its end, in every look; a clone's place below the picture
 // draws too; and a frame with no shape is a blank picture, not a panic.
 func TestEveryFamilyDraws(t *testing.T) {
-	// Fifteen parts: five intros and the whole of the first round; each
-	// early in its part and in its last ten seconds.
+	// Thirty parts: ten intros and every family of the rotation; each early
+	// in its part and in its last ten seconds.
 	seen := map[string]bool{}
-	for p := int64(0); p < 15; p++ {
+	for p := int64(0); p < 30; p++ {
 		seen[PartName(p)] = true
 		for _, look := range []string{"blue", "green", "classic"} {
 			for _, in := range []float64{12, 30, 58, LenOf(p) - 10} {
@@ -128,32 +128,116 @@ func TestEveryFamilyDraws(t *testing.T) {
 		t.Error("a place below 0 drew")
 	}
 	if len(seen) != len(Families()) {
-		t.Errorf("fifteen parts played %d families of %d", len(seen), len(Families()))
+		t.Errorf("thirty parts played %d families of %d", len(seen), len(Families()))
 	}
 }
 
-// When a part ends, the top left tile changes first and the bottom right
-// last; a cut changes every tile at once.
-func TestAChangeCrossesTheWallAndACutDoesNot(t *testing.T) {
-	at := StartOf(1) + 0.3
-	first := new(Show).Render(0, frameAt(at), "classic")
-	last := new(Show).Render(11, frameAt(at), "classic")
-	newFirst := new(Show).Render(0, Frame{T: at, Cols: 4, Rows: 3, W: 24, H: 18, CutPart: 1}, "classic")
-	newLast := new(Show).Render(11, Frame{T: at, Cols: 4, Rows: 3, W: 24, H: 18, CutPart: 1}, "classic")
-	if !bytes.Equal(first.Pix, newFirst.Pix) {
-		t.Error("the top left tile has not changed part 0.3 s after the change")
+// When a part ends, every tile changes at its own moment in that part's
+// choreography, all within the wipe and spread across it, so the change
+// crosses the wall as forty machines and not as one picture: between the
+// first tile's moment and the last's, the first shows the new part whole
+// and the last still plays the part before, by that part's own clock (into
+// an intro from a scene, and into a scene from an intro, which are not the
+// same length). A cut changes every tile at once.
+func TestEachTileChangesAtItsOwnMomentAndACutAtOnce(t *testing.T) {
+	const cols, rows = 4, 3
+	for _, p := range []int64{1, 2, 3, 4, 5, 7, 8, 10} {
+		first, last := 0, 0
+		for i := 0; i < cols*rows; i++ {
+			m := moment(p, i%cols, i/cols, cols, rows)
+			if m < 0 || m > 1 {
+				t.Fatalf("part %d place %d: its moment %v is outside the wipe", p, i, m)
+			}
+			if m < moment(p, first%cols, first/cols, cols, rows) {
+				first = i
+			}
+			if m > moment(p, last%cols, last/cols, cols, rows) {
+				last = i
+			}
+		}
+		m0, m1 := moment(p, first%cols, first/cols, cols, rows)*wipe, moment(p, last%cols, last/cols, cols, rows)*wipe
+		if m1-m0 < 2*openFor+0.05 {
+			t.Fatalf("part %d: every tile changes within %.2f s of the first: one picture, not forty", p, m1-m0)
+		}
+		local := (m0 + m1) / 2
+		f := frameAt(StartOf(p) + local)
+		fresh := new(Show).draw(image.NewRGBA(image.Rect(0, 0, 24, 18)), first%cols, first/cols, f, p, local, 0, "classic")
+		if got := new(Show).Render(first, f, "classic"); !bytes.Equal(got.Pix, fresh.Pix) {
+			t.Errorf("part %d: the first tile to change does not show the part whole %.2f s after its moment", p, local-m0)
+		}
+		before := new(Show).draw(image.NewRGBA(image.Rect(0, 0, 24, 18)), last%cols, last/cols, f, p-1, LenOf(p-1)+local, 0, "classic")
+		if got := new(Show).Render(last, f, "classic"); !bytes.Equal(got.Pix, before.Pix) {
+			t.Errorf("part %d: the last tile to change is not part %d going on %.2f s before its moment", p, p-1, m1-local)
+		}
+		cut := Frame{T: StartOf(p) + local, Cols: cols, Rows: rows, W: 24, H: 18, CutPart: p}
+		now := new(Show).draw(image.NewRGBA(image.Rect(0, 0, 24, 18)), last%cols, last/cols, cut, p, local, 0, "classic")
+		if got := new(Show).Render(last, cut, "classic"); !bytes.Equal(got.Pix, now.Pix) {
+			t.Errorf("part %d: a cut did not change the last tile at once", p)
+		}
 	}
-	if bytes.Equal(last.Pix, newLast.Pix) {
-		t.Error("the bottom right tile changed part as soon as the top left")
+}
+
+// The changes are choreographies of their own: every one of the six is
+// danced within the first sixty parts, and the order the tiles change in is
+// not the same from one change to the next; every tile works its moment
+// out alike, with nothing but the part's number.
+func TestEveryChangeIsAChoreographyOfItsOwn(t *testing.T) {
+	const cols, rows = 8, 5
+	kinds, orders := map[uint64]bool{}, map[string]bool{}
+	for p := int64(1); p <= 60; p++ {
+		kinds[mix64(uint64(p)*0x9e3779b97f4a7c15+0x7a3d)%6] = true
+		if p > 12 {
+			continue
+		}
+		key := ""
+		for i := 0; i < cols*rows; i++ {
+			m := moment(p, i%cols, i/cols, cols, rows)
+			if m != moment(p, i%cols, i/cols, cols, rows) {
+				t.Fatalf("part %d place %d: two moments for one tile", p, i)
+			}
+			key += string(rune('a' + int(m*20)))
+		}
+		orders[key] = true
 	}
-	// A tile whose turn has not come draws the part before as it goes on,
-	// by that part's own clock: into an intro from a scene, and into a
-	// scene from an intro, which are not the same length.
-	for _, p := range []int64{1, 3} {
-		f := frameAt(StartOf(p) + 0.3)
-		before := new(Show).draw(image.NewRGBA(image.Rect(0, 0, 24, 18)), 3, 2, f, p-1, LenOf(p-1)+0.3, 0, "classic")
-		if img := new(Show).Render(11, f, "classic"); !bytes.Equal(img.Pix, before.Pix) {
-			t.Errorf("0.3 s into part %d the bottom right tile is not part %d going on", p, p-1)
+	if len(kinds) != 6 {
+		t.Errorf("sixty parts danced %d of the six choreographies", len(kinds))
+	}
+	if len(orders) < 6 {
+		t.Errorf("twelve changes made only %d orders of the tiles", len(orders))
+	}
+	// A clone's place below the picture keeps its row's moment.
+	if moment(3, 2, 1, cols, rows) != moment(3, 2, 1+rows, cols, rows) {
+		t.Error("a clone's place below the picture changes at another moment than the row it repeats")
+	}
+}
+
+// At its moment a tile's screen is shut to a line of light across its
+// middle, and openFor later it is open on the new part.
+func TestATileShutsToALineAtItsMoment(t *testing.T) {
+	const cols, rows, w, h = 4, 3, 24, 18
+	for _, p := range []int64{2, 5} {
+		for _, i := range []int{0, 6, 11} {
+			at := moment(p, i%cols, i/cols, cols, rows) * wipe
+			shutImg := new(Show).Render(i, frameAt(StartOf(p)+at), "classic")
+			lit, off := 0, 0
+			for y := 0; y < h; y++ {
+				for x := 0; x < w; x++ {
+					o := y*shutImg.Stride + x*4
+					on := shutImg.Pix[o] > 0 || shutImg.Pix[o+1] > 0 || shutImg.Pix[o+2] > 0
+					if on && (y == h/2-1 || y == h/2) {
+						lit++
+					} else if on {
+						off++
+					}
+				}
+			}
+			if off != 0 || lit == 0 {
+				t.Errorf("part %d place %d at its moment: %d pixels lit on the middle line, %d elsewhere", p, i, lit, off)
+			}
+			open := new(Show).draw(image.NewRGBA(image.Rect(0, 0, w, h)), i%cols, i/cols, frameAt(StartOf(p)+at+openFor), p, at+openFor, 0, "classic")
+			if got := new(Show).Render(i, frameAt(StartOf(p)+at+openFor), "classic"); !bytes.Equal(got.Pix, open.Pix) {
+				t.Errorf("part %d place %d: %.2f s after its moment the screen is not open on the part", p, i, openFor)
+			}
 		}
 	}
 }
@@ -345,5 +429,36 @@ func TestTheCubesCellsGoAndGrowBack(t *testing.T) {
 	}
 	if before, after := c.state(end-0.02), c.state(end+0.02); after < before+1 {
 		t.Errorf("grown back: %d before the cell is whole, %d after", before, after)
+	}
+}
+
+// Every dive of the Mandelbrot stays drawn to the depth a part ends at: in a
+// view of 64 x 48, never more than three fifths inside the set (black), and
+// at least twelve distinct escape counts (not one flat colour), at every
+// depth from 1e-3 to 3e-10. (2026-11-19: the Feigenbaum point was all
+// inside past 1e-5, and its parts drew black for minutes.)
+func TestEveryDiveStaysDrawn(t *testing.T) {
+	for i, d := range dives {
+		for _, sc := range []float64{1e-3, 1e-5, 1e-7, 1e-8, 1e-9, 3e-10} {
+			maxIt := min(150+int(70*math.Log(2.8/sc)), 2400)
+			in, seen := 0, map[int]bool{}
+			for j := 0; j < 48; j++ {
+				for k := 0; k < 64; k++ {
+					cr, ci := d[0]+(float64(k)/48-0.667)*sc, d[1]+(float64(j)/48-0.5)*sc
+					zr, zi, n := 0.0, 0.0, 0
+					for ; n < maxIt && zr*zr+zi*zi < 256; n++ {
+						zr, zi = zr*zr-zi*zi+cr, 2*zr*zi+ci
+					}
+					if n == maxIt {
+						in++
+					} else {
+						seen[n] = true
+					}
+				}
+			}
+			if in*5 > 64*48*3 || len(seen) < 12 {
+				t.Errorf("dive %d %v at %.0e: %d%% inside, %d distinct counts", i, d, sc, in*100/(64*48), len(seen))
+			}
+		}
 	}
 }

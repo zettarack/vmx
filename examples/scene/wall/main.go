@@ -478,7 +478,7 @@ func (s *wall) showDo(w http.ResponseWriter, r *http.Request) {
 			to = p - 1
 		}
 	case slices.Contains(show.Families(), what):
-		if to = show.NextOf(p, what, 40); to < 0 {
+		if to = show.NextOf(p, what, show.Reach()); to < 0 {
 			http.Error(w, "no part of "+what+" comes soon", http.StatusNotFound)
 			return
 		}
@@ -1371,8 +1371,8 @@ body.demo #say{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:3;min
 <li>Practising failure: kill pieces on purpose and watch the rest carry on, as here.</li>
 </ul>
 <h2>The show</h2>
-<p>Eleven families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark landing out of falling bits, zettarack.com typed under it), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole, a plasma, and a cube of nodes under attack that grows back every node it loses. The intro opens the show and plays a minute after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
-<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. Choosing a tile puts cfg's buttons away, so the rows under them can be chosen too; <b>cfg</b>, the count of tiles chosen beside it, brings them back. The keys do the same: the left and right arrows, space, and 1 to 0 and - for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
+<p>Fourteen families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark landing out of falling bits, zettarack.com typed under it), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole, a plasma, a cube of nodes under attack that grows back every node it loses, and three of the forty pieces under one passing light: stone blocks, wooden planks, and old cut gems in dark settings, dust blown across them. The intro opens the show and plays a minute after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, every tile changes at a moment of its own, in an order the part picks (a ripple from one tile, each on its own, a sweep across or down, the board's two colours, the middle out), its screen shutting to a line of light and opening on the next part. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
+<p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. Choosing a tile puts cfg's buttons away, so the rows under them can be chosen too; <b>cfg</b>, the count of tiles chosen beside it, brings them back. The keys do the same: the left and right arrows, space, and 1 to 0, -, =, [ and ] for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
 <div class="lg">
@@ -1530,8 +1530,9 @@ ib.onclick=()=>showInfo(info.hidden);
 // The page's address ending #info opens it with the info shown.
 if(location.hash==='#info')showInfo(true);
 // The show's controls: the part before, hold, the next part and a
-// family's next part, by button and by key (the arrows, space, and 1 to 0
-// for the families in the order shown); none while a box is being typed in.
+// family's next part, by button and by key (the arrows, space, and 1 to 0,
+// -, =, [ and ] for the families in the order shown); none while a box is
+// being typed in.
 const showTo=what=>fetch('/show/'+encodeURIComponent(what),{method:'POST'});
 $('before').onclick=()=>showTo('before');$('hold').onclick=()=>showTo('hold');$('next').onclick=()=>showTo('next');$('text').onclick=()=>showTo('text');
 // cfg: the show's and the tiles' buttons, folded under the wall so the
@@ -1560,15 +1561,17 @@ if(location.hash==='#cfg')cfg(true);
 function fit(){wall.style.zoom='';if(demo){camera();return;}const w=wall.offsetWidth,h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
 const k=Math.max(0.25,Math.min((innerWidth-24)/w,room/h));wall.style.zoom=String(Math.round(k*1000)/1000);}
 addEventListener('resize',fit);new ResizeObserver(fit).observe($('dock'));
-// keys are the families' keys, in the order shown: 1 to 0, then -.
-const keys='1234567890-';
+// keys are the families' keys, in the order shown: 1 to 0, then -, =, [
+// and ]. Eleven keys left the last three of fourteen families without one
+// and their buttons said "key " (2026-11-20).
+const keys='1234567890-=[]';
 let fams=[],xall=[];
 // The extras: a button each, lit while on, the wall's for every page.
 function extrasTick(sh){if(!sh.all_extras)return;
 if(xall.join()!==sh.all_extras.join()){xall=sh.all_extras;const head=document.createElement('span');head.textContent='extras';$('xtras').replaceChildren(head,...xall.map(x=>{const b=document.createElement('button');b.dataset.x=x;b.textContent=x;b.title=x+', laid over every scene, on or off';b.onclick=()=>fetch('/extra/'+encodeURIComponent(x),{method:'POST'});return b;}));}
 const on=new Set(sh.extras||[]);document.querySelectorAll('#xtras button').forEach(b=>b.classList.toggle('on',on.has(b.dataset.x)));}
 function showTick(sh){if(!sh)return;extrasTick(sh);
-if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=keys[k]||'';b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+' (key '+key+')';b.onclick=()=>showTo(f);return b;}));}
+if(fams.join()!==sh.families.join()){fams=sh.families;$('fams').replaceChildren(...fams.map((f,k)=>{const b=document.createElement('button'),key=keys[k]||'';b.dataset.f=f;b.innerHTML='<u>'+key+'</u>'+f;b.title='the next part of '+f+(key?' (key '+key+')':'');b.onclick=()=>showTo(f);return b;}));}
 document.querySelectorAll('#fams button').forEach(b=>b.classList.toggle('on',b.dataset.f===sh.family));
 const s=Math.floor(sh.in_s);$('part').innerHTML='part <b>'+sh.part+'</b> &middot; <b>'+sh.family+'</b> &middot; '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+(sh.held?' &middot; <b>held</b>':'');
 $('hold').classList.toggle('on',sh.held);$('hold').textContent=sh.held?'Run':'Hold';

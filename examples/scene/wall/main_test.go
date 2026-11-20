@@ -1197,7 +1197,7 @@ func frameOf(t *testing.T, s *wall) frameDoc {
 // word that is none of these is refused with nothing changed.
 func TestTheShowsControlsMoveItsClockAndTheTilesAreTold(t *testing.T) {
 	s := fourTiles()
-	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "vmx" || sh.Held || len(sh.Families) != 11 || sh.Families[0] != "vmx" {
+	if sh := showOf(t, s); sh.Part != 0 || sh.Family != "vmx" || sh.Held || !slices.Equal(sh.Families, show.Families()) || sh.Families[0] != "vmx" {
 		t.Fatalf("a new wall's show: %+v", sh)
 	}
 	if c := ask(t, s, "POST", "/show/next", ""); c != http.StatusNoContent {
@@ -1266,7 +1266,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 	page := w.Body.String()
 	for _, said := range []string{
 		`<button id="before"`, `<button id="hold"`, `<button id="next"`, `<span id="fams">`,
-		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, and 1 to 0 and -", "const keys='1234567890-';", "key=keys[k]||'';", "showTo(fams[keys.indexOf(e.key)])",
+		"<h2>The show</h2>", "<b>Before</b>", "<b>Hold</b>", "<b>Run</b>", "<b>Next</b>", "<b>Text off</b>", "<b>Text on</b>", "the left and right arrows, space, and 1 to 0, -, =, [ and ]", "key=keys[k]||'';", "(key?' (key '+key+')':'')", "showTo(fams[keys.indexOf(e.key)])",
 		`<button id="text"`, "$('text').onclick=()=>showTo('text');", "else if(e.key==='t')showTo('text');",
 		// Text off takes all the text away: the tiles' names and counts and
 		// the lines above the wall, as well as the line in the picture.
@@ -1294,9 +1294,22 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 			t.Errorf("the page does not have %q", said)
 		}
 	}
-	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "black hole", "plasma", "cube of nodes"} {
+	for _, fam := range []string{"vmx", "grid", "land", "day", "space", "shapes", "Mandelbrot", "Julia", "black hole", "plasma", "cube of nodes", "stone blocks", "wooden planks", "old cut gems"} {
 		if !strings.Contains(page, fam) {
 			t.Errorf("the info does not name %s", fam)
+		}
+	}
+	// Every family has a key of its own, and none is a key the page uses
+	// for something else: eleven keys left the last three of fourteen
+	// families without one (2026-11-20).
+	_, rest, ok := strings.Cut(page, "const keys='")
+	keys, _, _ := strings.Cut(rest, "'")
+	if !ok || len(keys) < len(show.Families()) {
+		t.Errorf("the page has %d keys (%q) for %d families", len(keys), keys, len(show.Families()))
+	}
+	for i, k := range keys {
+		if strings.ContainsRune("ct ", k) || strings.IndexRune(keys, k) != i {
+			t.Errorf("the family key %q is taken", k)
 		}
 	}
 }

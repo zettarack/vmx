@@ -15,7 +15,10 @@ var dives = [][2]float64{
 	{-0.743643887037151, 0.131825904205330},
 	{-0.77568377, 0.13646737},
 	{-0.10109636384562, 0.95628651080914},
-	{-1.401155189092, 0},
+	// Not the Feigenbaum point (-1.401155189092, 0): past 1e-5 it is all
+	// inside the set, and its parts drew black for minutes (2026-11-19,
+	// found when the show's families grew; see TestEveryDiveStaysDrawn).
+	{-0.7746806106269039, -0.1374168856037867},
 	{0, 1},
 }
 
