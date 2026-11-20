@@ -33,6 +33,13 @@
 // that on the tile. The wall knows a new microVM by the boot id every tile
 // sends with its frames, so the page can say how long a rebuilt tile was
 // away. With no keeper watching, a request waits, and the page says so.
+//
+// A demo (05-demoscene-wall.sh --demo, on the host) tells the wall what to
+// say (POST /demo): two lines of words, the places to frame and the marks
+// to lay over one of them. Every page open on the wall shows that under
+// the picture, frames those places, and keeps its own numbers and the
+// tiles' names and counts in view, its buttons away, until the demo ends
+// (DELETE /demo) or says nothing for demoFor.
 // Part of the vmx examples (MIT, see examples/LICENSE).
 package main
 
@@ -48,6 +55,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"scene/show"
@@ -85,10 +93,12 @@ type tile struct {
 	snaps           []snapRow
 	snapsAt, wanted time.Time
 	// queue is the buttons' verbs waiting for the keeper, the first the
-	// one it does next; acting whether it took that one, actAt when. said
-	// is what the keeper said became of the last, saidAt when.
+	// one it does next; acting whether it took that one, actAt when; again
+	// whether it was handed out again after the keeper took it and said
+	// nothing for actFor (its late word still ends it). said is what the
+	// keeper said became of the last, saidAt when.
 	queue         []press
-	acting        bool
+	acting, again bool
 	actAt, saidAt time.Time
 	said          string
 	// own is the bytes of disk the tile holds of its own, as ZFS keeps it:
@@ -213,7 +223,41 @@ type wall struct {
 	// pageID is this wall's own id, made when it starts: a page served by
 	// another wall (one swapped in since, or made again) reloads itself.
 	pageID string
+	// demo is what a demo last said (nil: none runs), at demoAt.
+	demo   *demoSay
+	demoAt time.Time
 }
+
+// demoSay is what a demo says on every page open on the wall (POST /demo,
+// from the script's --demo): a line of words under the picture and a
+// smaller one under it, the places the page frames (none: the whole wall,
+// clones and all), the marks laid over the one place framed, each with its
+// words, and plain, the tiles' names and counts put away while the picture
+// is the point (a title over the wordmark).
+type demoSay struct {
+	Big   string            `json:"big"`
+	Small string            `json:"small"`
+	Focus []int             `json:"focus"`
+	Marks map[string]string `json:"marks"`
+	Plain bool              `json:"plain"`
+}
+
+// A demo's bounds: its two lines and a mark's words, in bytes; the most
+// places it frames; and demoFor, how long a demo that says nothing more
+// lasts (a script killed outright cannot end it, and no page stays in it
+// for good).
+const (
+	demoBig   = 160
+	demoSmall = 240
+	demoMark  = 80
+	demoFocus = 64
+	demoFor   = 15 * time.Minute
+)
+
+// demoMarks are the marks a page lays over the one place a demo frames:
+// the container (the tile's picture), its microVM, its golden image, its
+// volume, and its counts.
+var demoMarks = []string{"container", "vm", "golden", "volume", "counts"}
 
 // showNow is the show's clock at now. s.mu is held.
 func (s *wall) showNow(now time.Time) float64 {
@@ -656,7 +700,7 @@ func (s *wall) asked(w http.ResponseWriter, _ *http.Request) {
 			continue
 		}
 		if t.acting && now.Sub(t.actAt) > actFor {
-			t.acting = false
+			t.acting, t.again = false, true
 			log.Printf("tile %d: %s asked again, %.0f s after the keeper took it and said nothing", i, t.queue[0].do, now.Sub(t.actAt).Seconds())
 		}
 		if !t.acting {
@@ -720,9 +764,16 @@ func (s *wall) did(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no such tile", http.StatusNotFound)
 		return
 	}
-	if t.acting && len(t.queue) > 0 {
+	// The keeper's word ends the verb at the head when it took that verb,
+	// or took it and it was handed out again for its silence and has not
+	// been taken since: a late word ends it all the same. 2026-11-19: clones
+	// that took a minute on a host drawing 130 tiles were handed out again,
+	// the keeper's word came a moment after and ended nothing, and ten
+	// tiles were cloned twice (the keeper takes nothing again while its job
+	// on that tile runs, so the word always comes first).
+	if len(t.queue) > 0 && (t.acting || t.again) {
 		what := t.queue[0].do
-		t.queue, t.acting = t.queue[1:], false
+		t.queue, t.acting, t.again = t.queue[1:], false, false
 		switch {
 		case what == "restore" && failed:
 			t.restartBy = time.Time{}
@@ -790,7 +841,7 @@ func (s *wall) down(w http.ResponseWriter, _ *http.Request) {
 	s.phase, s.phaseAt = "down", time.Now()
 	for i := range s.tiles {
 		t := &s.tiles[i]
-		t.queue, t.acting, t.asked, t.said = nil, false, time.Time{}, ""
+		t.queue, t.acting, t.again, t.asked, t.said = nil, false, false, time.Time{}, ""
 	}
 	log.Printf("reset: the keeper takes the wall down")
 	w.WriteHeader(http.StatusNoContent)
@@ -905,6 +956,12 @@ func (s *wall) state(w http.ResponseWriter, _ *http.Request) {
 	doc["show"] = map[string]any{"part": part, "family": show.PartName(part), "in_s": in,
 		"len_s": show.LenOf(part), "held": s.showHeld, "text": !s.quiet, "families": show.Families(),
 		"extras": s.extrasOn(), "all_extras": show.Extras}
+	// The picture's shape, for a script that drives the wall (--demo), and
+	// what a demo says while it runs.
+	doc["cols"], doc["rows"] = s.cols, s.rows
+	if s.demo != nil && now.Sub(s.demoAt) <= demoFor {
+		doc["demo"] = s.demo
+	}
 	s.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(doc); err != nil {
@@ -1007,6 +1064,90 @@ func (s *wall) hostSays(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// plain says whether s, as JSON decodes it, is words a page may show as
+// they are: n bytes at most and no control character (a line break among
+// them: each is one line).
+func plain(s string, n int) bool {
+	if len(s) > n {
+		return false
+	}
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// demoBody is the most a demo's body may be, in bytes.
+const demoBody = 16 << 10
+
+// demoSet is a demo saying what every page open on the wall shows; the
+// body is demoSay as JSON, in UTF-8. A body over demoBody or not UTF-8,
+// lines or a mark's words that are not plain or are too long, a place
+// outside 0 to maxTiles-1 or named twice, more than demoFocus places, a
+// mark not of demoMarks, or marks with other than one place framed are
+// refused, and the demo stays as it was. (Bytes that are not UTF-8 are
+// refused before the JSON is read, which would put U+FFFD in their place.)
+func (s *wall) demoSet(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, demoBody+1))
+	if err != nil {
+		http.Error(w, "the body was not read: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body) > demoBody || !utf8.Valid(body) {
+		http.Error(w, "the body is what the demo says, as JSON in UTF-8 of "+strconv.Itoa(demoBody)+" bytes at most", http.StatusBadRequest)
+		return
+	}
+	var d demoSay
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&d); err != nil {
+		http.Error(w, "the body is what the demo says, as JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !plain(d.Big, demoBig) || !plain(d.Small, demoSmall) {
+		http.Error(w, "big is one line of "+strconv.Itoa(demoBig)+" bytes at most and small of "+strconv.Itoa(demoSmall)+", UTF-8 with no control character", http.StatusBadRequest)
+		return
+	}
+	if len(d.Focus) > demoFocus {
+		http.Error(w, "a demo frames "+strconv.Itoa(demoFocus)+" places at most", http.StatusBadRequest)
+		return
+	}
+	seen := map[int]bool{}
+	for _, i := range d.Focus {
+		if i < 0 || i >= maxTiles || seen[i] {
+			http.Error(w, "focus is places of the wall, 0 to "+strconv.Itoa(maxTiles-1)+", each once: not "+strconv.Itoa(i), http.StatusBadRequest)
+			return
+		}
+		seen[i] = true
+	}
+	for k, v := range d.Marks {
+		if !slices.Contains(demoMarks, k) || !plain(v, demoMark) {
+			http.Error(w, "the marks are "+strings.Join(demoMarks, ", ")+", each with one line of "+strconv.Itoa(demoMark)+" bytes at most: not "+strconv.Quote(k), http.StatusBadRequest)
+			return
+		}
+	}
+	if len(d.Marks) > 0 && len(d.Focus) != 1 {
+		http.Error(w, "marks are laid over one place: focus names exactly one", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	s.demo, s.demoAt = &d, time.Now()
+	s.mu.Unlock()
+	log.Printf("demo: %q", d.Big)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// demoEnd is a demo over: every page shows the wall as it was before it.
+func (s *wall) demoEnd(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	s.demo = nil
+	s.mu.Unlock()
+	log.Printf("demo: over")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *wall) page(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	s.seen(time.Now())
@@ -1045,6 +1186,8 @@ func (s *wall) routes() *http.ServeMux {
 	mux.HandleFunc("POST /snaps/{i}", s.snapsSaid)
 	mux.HandleFunc("POST /show/{what}", s.showDo)
 	mux.HandleFunc("POST /extra/{name}", s.extra)
+	mux.HandleFunc("POST /demo", s.demoSet)
+	mux.HandleFunc("DELETE /demo", s.demoEnd)
 	return mux
 }
 
@@ -1086,7 +1229,7 @@ h1{margin:18px 0 6px;font-size:28px;letter-spacing:6px;background:linear-gradien
 #hold.on,#text.on{border-color:#ffe53c;color:#ffe53c}
 #part{min-width:210px;margin-left:8px;color:#8d90c4;font-size:14px}
 #part b{color:#fff}
-#wall{display:grid;grid-template-columns:repeat(COLS,TWpx);gap:2px;background:#000;padding:2px;border:1px solid #2a2850;user-select:none;-webkit-user-select:none;touch-action:none}
+#wall{position:relative;display:grid;grid-template-columns:repeat(COLS,TWpx);gap:2px;background:#000;padding:2px;border:1px solid #2a2850;user-select:none;-webkit-user-select:none;touch-action:none}
 .t{position:relative;width:TWpx;height:THpx;background:#0b0a16;cursor:pointer}
 .t img{display:block;width:TWpx;height:THpx;pointer-events:none;-webkit-user-drag:none}
 .t img:not([src]){visibility:hidden}
@@ -1148,6 +1291,40 @@ button:disabled{opacity:.35;cursor:default}
 .lr p{margin:0;font-size:13px;line-height:1.45}
 .lg .t{flex:none;width:160px;height:120px;cursor:default;background:#000;box-shadow:0 0 0 1px #2a2850}
 .lg .t img{width:160px;height:120px}
+/* A demo (05-demoscene-wall.sh --demo): its two lines under the picture,
+   the places it names framed, its marks over one; the page's own numbers
+   and the tiles' names and counts stay, its buttons and the pointer go.
+   Sized by the window's shorter side, so a square or a tall window (a
+   feed's 1:1 or 4:5) records as well as a wide one. */
+#say{display:none}
+body.demo,body.demo *{cursor:none}
+body.demo #dock,body.demo #info,body.demo #clock{display:none}
+body.demo h1{margin:1.2vmin 0 .4vmin;font-size:2.6vmin}
+body.demo #bar{margin:.2vmin 16px .5vmin;font-size:2.1vmin}
+body.demo #host{margin:0 16px;font-size:1.7vmin}
+body.demo #wall{position:fixed;left:0;top:0;margin:0;z-index:1;transform-origin:0 0;transition:transform 1.4s cubic-bezier(.45,0,.2,1)}
+body.demo .t span,body.demo .t b{opacity:1}
+body.demo.plain .t span,body.demo.plain .t b{opacity:0}
+body.demo .t.dead img,body.demo .t.none img{visibility:hidden}
+body.demo .t.dead:not(.busy):not(.focus) span,body.demo .t.dead:not(.busy):not(.focus) b,body.demo .t.none:not(.busy):not(.focus) span{visibility:hidden}
+body.demo.near .t img{image-rendering:pixelated}
+body.demo #say{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:3;min-height:16vh;box-sizing:border-box;padding:1.6vmin 4vw;flex-direction:column;align-items:center;justify-content:center;gap:1.1vmin;background:#05040a;text-align:center}
+#say b{font:600 4.4vmin/1.15 system-ui,"Noto Sans","DejaVu Sans",sans-serif;color:#fff;transition:opacity .25s}
+#say span{font:500 2.4vmin/1.25 ui-monospace,"DejaVu Sans Mono",monospace;color:#5fff00;transition:opacity .25s}
+#say .fade{opacity:0}
+.mk{position:absolute;box-sizing:border-box;pointer-events:none;opacity:0;transition:opacity .7s;z-index:2}
+.mk.on{opacity:1}
+.mk i{position:absolute;white-space:nowrap;font:600 8px/1.35 ui-monospace,monospace;font-style:normal;padding:1px 4px;border-radius:2px;color:#05040a}
+#mk-container{border:2px solid #3cffb4}
+#mk-container i{left:2px;top:2px;background:#3cffb4}
+#mk-vm{border:2px solid #3cd2ff;border-radius:5px}
+#mk-vm i{left:-2px;bottom:calc(100% + 2px);background:#3cd2ff}
+#mk-golden,#mk-volume{display:flex;align-items:center;padding:0 4px;border:2px solid #ffe53c;background:#ffe53c1c;border-radius:3px}
+#mk-volume{border-color:#ff3cac;background:#ff3cac1c}
+#mk-golden i,#mk-volume i{position:static;padding:0;background:none;color:#ffe53c}
+#mk-volume i{color:#ff7cc8}
+#mk-counts{border-top:2px solid #fff}
+#mk-counts i{left:calc(100% + 2px);top:-7px;background:#fff}
 </style></head><body>
 <h1>FIRECRACKER WALL</h1>
 <div id="bar"><span id="live"></span><span id="fps"></span><span id="clock"></span><span id="new"></span><span id="looks"></span></div>
@@ -1163,6 +1340,7 @@ button:disabled{opacity:.35;cursor:default}
 <div id="strip"><button id="text" title="the page's text: the title, the lines above the wall, every tile's name and counts, off or on (t); the picture's own words stay">Text off</button><button id="cfg" aria-expanded="false" aria-controls="panel" title="the show's and the tiles' buttons, open or closed (c)">cfg</button></div>
 <div id="hint"></div>
 </div>
+<div id="say" aria-live="polite"><b id="sayb"></b><span id="says"></span></div>
 <div id="info" hidden>
 <h2>What you are looking at</h2>
 <p>One picture, hours of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
@@ -1193,7 +1371,7 @@ button:disabled{opacity:.35;cursor:default}
 <li>Practising failure: kill pieces on purpose and watch the rest carry on, as here.</li>
 </ul>
 <h2>The show</h2>
-<p>Eleven families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark with zettarack.com under it and a scroller of what vmx does), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole, a plasma, and a cube of nodes under attack that grows back every node it loses. The intro opens the show and plays three minutes after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
+<p>Eleven families of scene, each played for seven minutes with a seed of its own, so a landscape at dawn comes back as a canyon by moonlight: the vmx intro (the wordmark landing out of falling bits, zettarack.com typed under it), a grid of light, land, day, space, shapes, a Mandelbrot dive, a Julia set, a black hole, a plasma, and a cube of nodes under attack that grows back every node it loses. The intro opens the show and plays a minute after every two scenes. Every tile works its square out from the show's clock alone, so the forty agree on one picture without a word between them; when a part ends, each tile changes at its own turn, the top left first, and the change crosses the wall from machine to machine. A deep fractal, a raymarched solid or a black hole's bent light costs more to draw than a plasma, and the frames a second say so.</p>
 <p>Under the wall, <b>cfg</b> opens the buttons over the foot of the wall (the key c), and <b>Text off</b> beside it takes the page's own text away (the key t): the title, the lines above the wall, and every tile's name and counts, so the demo shows alone; the words a scene writes are part of the picture and stay. <b>Text on</b> brings it back. With the text on, the tiles' names and counts fade six seconds after the mouse or the keys were last moved, and come back with the next move; they stay while cfg is open or a tile is chosen. In cfg: <b>Before</b> plays this part from its start, or the one before within its first four seconds; <b>Hold</b> holds the show where it is, and <b>Run</b> lets it go on; <b>Next</b> plays the next part; a family's button plays the next part of that family; and under them the tiles' own buttons. Choosing a tile puts cfg's buttons away, so the rows under them can be chosen too; <b>cfg</b>, the count of tiles chosen beside it, brings them back. The keys do the same: the left and right arrows, space, and 1 to 0 and - for the families in the order shown. Under them, the <b>extras</b>: stars, rasters, scanlines, a vignette and grain, laid over every scene by every tile, each on or off. The show's clock, its text and its extras are the wall's, so every page open on it sees the same part, with the text or without. Clones take rows below the picture at the picture's own size, and the page scrolls down to them.</p>
 <h2>What a tile shows</h2>
 <p>Its part of the picture, its name along the bottom, and in its corner two counts of the frames it has drawn. The picture's colours say which version of the tile's program it runs, blue the first and green the new one; the colour of its outline and of its name say what is happening to it.</p>
@@ -1250,7 +1428,7 @@ button:disabled{opacity:.35;cursor:default}
 <h2>The line under the clock</h2>
 <p>What the host holds of the wall, as the keeper reads it from the host every few seconds: how many of its microVMs run, the memory they take (each microVM's resident memory on the host), and their disks counted two ways: as full copies would take them, and as ZFS keeps them, each tile's own changes and the image they all share counted once; then their volumes, as ZFS keeps them, which is mostly the room it sets aside for each, written to or not. Each tile shows the disk it holds of its own beside its name.</p>
 <h2>Who does it</h2>
-<p>The page cannot do any of that by itself, and that is the point: it is a program in a container, and nothing in a container commands the host. A button only leaves a request on the wall. The keeper, a small loop on the host (<code>05-demoscene-wall.sh</code>, running as the service <code>demoscene-keeper</code>), asks the wall what was asked, does it with the <code>vmx</code> command and says what became of it, which the tile shows. It also runs again any tile that is gone or stopped, however it went. Every tile sends an id made when its program starts, so the wall can tell a new machine from the old one. With no keeper watching, a request waits, and the page says so. The same requests can come from a script: <code>05-demoscene-wall.sh --show</code> presses the buttons in a fixed order, each step waited out, for a recording.</p>
+<p>The page cannot do any of that by itself, and that is the point: it is a program in a container, and nothing in a container commands the host. A button only leaves a request on the wall. The keeper, a small loop on the host (<code>05-demoscene-wall.sh</code>, running as the service <code>demoscene-keeper</code>), asks the wall what was asked, does it with the <code>vmx</code> command and says what became of it, which the tile shows. It also runs again any tile that is gone or stopped, however it went. Every tile sends an id made when its program starts, so the wall can tell a new machine from the old one. With no keeper watching, a request waits, and the page says so. The same requests can come from a script: <code>05-demoscene-wall.sh --show</code> presses the buttons in a fixed order, each step waited out, for a recording. And <code>05-demoscene-wall.sh --demo</code> walks through the wall from one container up, each step done on the host as an operator would do it, and says what each one shows under the picture, with the numbers it measured, on every page open on the wall.</p>
 </div>
 <script>
 const n=COLS*ROWS,$=id=>document.getElementById(id),wall=$('wall'),tiles=[],sel=new Set();
@@ -1274,7 +1452,7 @@ for(let i=0;i<n;i++)add(i);
 // Choosing puts cfg's buttons away: they lie over the wall's foot, and
 // the rows under them could be neither clicked nor dragged onto
 // (2026-11-18). cfg, the count of tiles chosen beside it, brings them back.
-wall.addEventListener('pointerdown',e=>{const d=e.target.closest('.t');if(!d||e.button!==0)return;e.preventDefault();const i=+d.dataset.i;painting=!sel.has(i);choose(i,painting);tools();cfg(false);});
+wall.addEventListener('pointerdown',e=>{const d=e.target.closest('.t');if(!d||e.button!==0||demo)return;e.preventDefault();const i=+d.dataset.i;painting=!sel.has(i);choose(i,painting);tools();cfg(false);});
 document.addEventListener('pointermove',e=>{if(painting===null)return;const d=document.elementFromPoint(e.clientX,e.clientY)?.closest('#wall .t');if(d)choose(+d.dataset.i,painting);tools();});
 for(const k of ['pointerup','pointercancel'])document.addEventListener(k,()=>{painting=null;});
 verbs.forEach(b=>b.onclick=()=>{const what=b.dataset.do,chosen=[...sel].sort((a,c)=>a-c);if(!chosen.length)return;let path='/do/'+what;
@@ -1336,10 +1514,10 @@ $('live').innerHTML='<b>'+s.live+'</b> of '+s.tiles.length+' microVMs live';$('f
 $('clock').innerHTML=s.shutdown?'shutting down: the keeper takes the wall away':s.reset==='asked'?'a reset is asked':s.reset==='down'?'taking the wall down, <b>'+s.reset_s.toFixed(1)+' s</b>':s.reset==='up'?'the wall comes back: <b>'+s.up+'</b> of '+s.tiles.length+', <b>'+s.since_s.toFixed(1)+' s</b>':s.full_s>0?'all '+s.full_n+' up in <b>'+s.full_s.toFixed(1)+' s</b>':'<b>'+s.since_s.toFixed(1)+' s</b> since the start';
 $('new').innerHTML=s.replaced>0?'<b>'+s.replaced+'</b> replaced':'';
 $('looks').innerHTML=kinds.map(k=>'<b>'+by[k]+'</b> '+k).join(' &middot; ');
-const h=s.host;$('host').innerHTML=h?'<b>'+h.tiles+'</b> microVMs &middot; <b>'+size(h.memory)+'</b> of memory &middot; their disks: <b>'+size(h.copies)+'</b> as full copies, <b>'+size(h.disk)+'</b> as ZFS keeps them'+(h.volumes?' &middot; their volumes: <b>'+size(h.volumes)+'</b>':''):'';
+const h=s.host;$('host').innerHTML=h?'<b>'+h.tiles+'</b> microVM'+(h.tiles===1?'':'s')+' &middot;<b>'+size(h.memory)+'</b> of memory &middot; their disks: <b>'+size(h.copies)+'</b> as full copies, <b>'+size(h.disk)+'</b> as ZFS keeps them'+(h.volumes?' &middot; their volumes: <b>'+size(h.volumes)+'</b>':''):'';
 $('reset').disabled=!!s.reset||!!s.shutdown;$('reset').textContent=s.reset?'Resetting':'Reset the wall';
 if(s.shutdown){$('shut').disabled=true;$('shut').textContent='Shutting down';}
-showTick(s.show);
+showTick(s.show);demoTick(s);
 const waiting=s.reset==='asked'||s.tiles.some(t=>t.act||t.asked);
 $('hint').innerHTML=!s.keeper&&waiting?'<b>no keeper is watching</b>: nothing asked here is done until the host runs 05-demoscene-wall.sh --keep':'';
 tools();}catch(e){
@@ -1365,7 +1543,7 @@ const panel=$('panel');
 // is what is watched.
 let stirred=Date.now();
 for(const k of ['pointermove','pointerdown','keydown','touchstart','wheel'])document.addEventListener(k,()=>{stirred=Date.now();document.body.classList.remove('idle');},{passive:true});
-setInterval(()=>document.body.classList.toggle('idle',Date.now()-stirred>6000&&panel.hidden&&!sel.size),250);
+setInterval(()=>document.body.classList.toggle('idle',Date.now()-stirred>6000&&panel.hidden&&!sel.size&&!demo),250);
 function cfg(on){panel.hidden=!on;$('cfg').setAttribute('aria-expanded',on?'true':'false');$('cfg').classList.toggle('on',on);}
 $('cfg').onclick=()=>cfg(panel.hidden);
 // The page's address ending #cfg opens it with cfg's buttons shown.
@@ -1379,7 +1557,7 @@ if(location.hash==='#cfg')cfg(true);
 // (2026-11-18). Text off hides the lines above the wall and keeps their
 // room, and cfg's panel lies over the wall's foot, so neither moves the
 // wall nor changes its size.
-function fit(){wall.style.zoom='';const w=wall.offsetWidth,h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
+function fit(){wall.style.zoom='';if(demo){camera();return;}const w=wall.offsetWidth,h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3,room=innerHeight-wall.offsetTop-$('dock').offsetHeight-8;
 const k=Math.max(0.25,Math.min((innerWidth-24)/w,room/h));wall.style.zoom=String(Math.round(k*1000)/1000);}
 addEventListener('resize',fit);new ResizeObserver(fit).observe($('dock'));
 // keys are the families' keys, in the order shown: 1 to 0, then -.
@@ -1395,8 +1573,10 @@ document.querySelectorAll('#fams button').forEach(b=>b.classList.toggle('on',b.d
 const s=Math.floor(sh.in_s);$('part').innerHTML='part <b>'+sh.part+'</b> &middot; <b>'+sh.family+'</b> &middot; '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0')+(sh.held?' &middot; <b>held</b>':'');
 $('hold').classList.toggle('on',sh.held);$('hold').textContent=sh.held?'Run':'Hold';
 $('text').classList.toggle('on',sh.text===false);$('text').textContent=sh.text===false?'Text on':'Text off';
-document.body.classList.toggle('quiet',sh.text===false);}
+document.body.classList.toggle('quiet',sh.text===false&&!demo);}
 document.addEventListener('keydown',e=>{
+// A demo plays by itself: no key moves the show or chooses under it.
+if(demo)return;
 if(e.key==='Escape'){if(!info.hidden)showInfo(false);else if(!panel.hidden)cfg(false);else $('none').onclick();return;}
 if(e.ctrlKey||e.metaKey||e.altKey||e.target.closest?.('input,textarea,select'))return;
 if(e.key==='ArrowRight')showTo('next');else if(e.key==='ArrowLeft')showTo('before');else if(e.key===' ')showTo('hold');else if(e.key==='t')showTo('text');else if(e.key==='c')cfg(panel.hidden);
@@ -1407,6 +1587,51 @@ e.preventDefault();});
 const swatches={blue:['000000','000768','031c93','0f3fb4','3271d0','7ab1e8','ffffff'],green:['000000','076800','1c9303','3fb40f','71d032','b1e87a','ffffff']};
 const swatch=c=>'data:image/svg+xml,'+encodeURIComponent("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3' preserveAspectRatio='none'><linearGradient id='g' x2='1' y2='1'>"+c.map((h,k)=>"<stop offset='"+(k/(c.length-1)).toFixed(3)+"' stop-color='#"+h+"'/>").join('')+"</linearGradient><rect width='4' height='3' fill='url(#g)'/></svg>");
 document.querySelectorAll('.lg img[data-look]').forEach(im=>{im.src=swatch(swatches[im.dataset.look]);});
+// A demo (05-demoscene-wall.sh --demo, run on the host) says what every
+// page open on the wall shows (the wall's state, demo): two lines under the
+// picture, the places it names framed (none: the whole wall, clones and
+// all), and its marks laid over the one place framed: the container, its
+// microVM, its golden image, its volume and its counts. The page's own
+// numbers and the tiles' names and counts stay in view, its buttons go,
+// and its keys and clicks do nothing while the demo lasts. Its words go
+// in as text, never as markup.
+let demo=null,demoFade=0;
+const sayb=$('sayb'),says=$('says'),marks={};
+for(const k of ['container','vm','golden','volume','counts']){const m=document.createElement('div');m.className='mk';m.id='mk-'+k;m.append(document.createElement('i'));wall.append(m);marks[k]=m;}
+function demoTick(s){const d=s.demo||null,was=demo;demo=d;
+if(!d){if(was){document.body.classList.remove('demo','near','plain');wall.style.transform='';for(const m of Object.values(marks))m.classList.remove('on');tiles.forEach(o=>o.d.classList.remove('focus'));sayb.textContent=says.textContent='';fit();}return;}
+if(!was){document.body.classList.add('demo');[...sel].forEach(i=>choose(i,false));tools();cfg(false);showInfo(false);}
+if(!was||was.big!==d.big){sayb.classList.add('fade');says.classList.add('fade');clearTimeout(demoFade);
+demoFade=setTimeout(()=>{if(!demo)return;sayb.textContent=demo.big;says.textContent=demo.small;sayb.classList.remove('fade');says.classList.remove('fade');},was?250:0);}
+else if(was.small!==d.small&&!sayb.classList.contains('fade'))says.textContent=d.small;
+const f=(d.focus||[]).filter(i=>i<tiles.length),one=f.length===1;
+document.body.classList.toggle('plain',d.plain===true);
+tiles.forEach((o,i)=>o.d.classList.toggle('focus',f.includes(i)));
+for(const [k,m] of Object.entries(marks)){const on=one&&!!d.marks&&typeof d.marks[k]==='string';m.classList.toggle('on',on);if(on)m.firstChild.textContent=d.marks[k];}
+camera();}
+// camera: the wall moved and sized so the places the demo names, and the
+// marks over one, fill the room between the lines above the picture and
+// the demo's words below it; none named, the whole wall. A window sized
+// anew, or a wall grown by clones, is framed again (fit).
+function camera(){if(!demo)return;
+const f=(demo.focus||[]).filter(i=>i<tiles.length);let x1=0,y1=0,x2=wall.offsetWidth,y2=wall.offsetHeight;
+if(f.length){x1=y1=1e9;x2=y2=-1e9;
+for(const i of f){const e=tiles[i].d;x1=Math.min(x1,e.offsetLeft);y1=Math.min(y1,e.offsetTop);x2=Math.max(x2,e.offsetLeft+e.offsetWidth);y2=Math.max(y2,e.offsetTop+e.offsetHeight);}
+if(f.length===1){const x=x1,y=y1,w=x2-x1,h=y2-y1,on=k=>marks[k].classList.contains('on');
+// A slab under the tile (golden, volume) is as wide as its frame at least,
+// and as wide as its words (2026-11-19: the words ran past a slab of the
+// frame's width).
+const put=(k,l,t,ww,hh,grow)=>{const st=marks[k].style;st.left=l+'px';st.top=t+'px';st.height=hh+'px';if(grow){st.width='';st.minWidth=ww+'px';}else st.width=ww+'px';};
+put('container',x,y,w,h);put('vm',x-6,y-6,w+12,h+12);put('golden',x-6,y+h+10,w+12,16,true);put('volume',x-6,y+h+30,w+12,16,true);put('counts',x+w-3,y+12,20,0);
+if(on('vm')){x1=x-8;y1=y-22;x2=x+w+8;y2=y+h+8;}
+if(on('golden')){y2=Math.max(y2,y+h+28);x2=Math.max(x2,x-6+marks.golden.offsetWidth);}
+if(on('volume')){y2=Math.max(y2,y+h+48);x2=Math.max(x2,x-6+marks.volume.offsetWidth);}
+if(on('counts'))x2=Math.max(x2,x+w+19+marks.counts.firstChild.offsetWidth);}
+x1-=10;y1-=10;x2+=10;y2+=10;}
+const top=$('host').getBoundingClientRect().bottom+innerHeight*.01,bottom=innerHeight-$('say').offsetHeight-innerHeight*.01;
+const k=Math.min(6,innerWidth*.96/(x2-x1),(bottom-top)*.96/(y2-y1));
+wall.style.transform='translate('+(innerWidth/2-k*(x1+x2)/2).toFixed(1)+'px,'+((top+bottom)/2-k*(y1+y2)/2).toFixed(1)+'px) scale('+k.toFixed(4)+')';
+document.body.classList.toggle('near',k>=2);}
 fit();
 tick();
 </script></body></html>`

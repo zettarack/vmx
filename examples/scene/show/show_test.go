@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"image"
 	"math"
-	"strings"
 	"testing"
 )
 
@@ -220,10 +219,10 @@ func TestEveryFactIsInTheFont(t *testing.T) {
 	}
 }
 
-// The wordmark, its tagline and the intro's features have a glyph for
-// every character (a space is the gap), so none loses a letter.
+// The wordmark and its tagline have a glyph for every character (a space
+// is the gap), so neither loses a letter.
 func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {
-	for _, s := range append([]string{word, tagline}, features...) {
+	for _, s := range []string{word, tagline} {
 		for i := 0; i < len(s); i++ {
 			if s[i] != ' ' && glyphFor(s[i]) == blank {
 				t.Errorf("%q: %q has no glyph", s, s[i])
@@ -232,11 +231,10 @@ func TestTheWordmarkAndTaglineAreInTheFont(t *testing.T) {
 	}
 }
 
-// The schedule's clock: a scene plays seven minutes and the intro two and
-// a half; every part starts where the one before it ends; and the part at
+// The schedule's clock: a scene plays seven minutes and the intro one; every part starts where the one before it ends; and the part at
 // any moment is the one whose span holds it.
 func TestThePartsTakeTheirTimes(t *testing.T) {
-	if LenOf(0) != 180 || LenOf(1) != 420 || LenOf(2) != 420 || LenOf(3) != 180 {
+	if LenOf(0) != 60 || LenOf(1) != 420 || LenOf(2) != 420 || LenOf(3) != 60 {
 		t.Fatalf("lengths: %v %v %v %v", LenOf(0), LenOf(1), LenOf(2), LenOf(3))
 	}
 	for p := int64(0); p < 60; p++ {
@@ -288,52 +286,6 @@ func TestTheBlackHolesSkyHasNoSeams(t *testing.T) {
 	// of one does not show.
 	if worst > 1.0/630/20 {
 		t.Errorf("the way out steps by %.2g rad at %.3f wide", worst, 2.9+0.002*float64(at))
-	}
-}
-
-// The intro's scroller says every feature, in order, the site last, and
-// carries the whole line across the picture while the word holds, slowly
-// enough to read: each letter on the picture six seconds or more. And it
-// draws: the intro with its line has text in it that the intro with no
-// line has not.
-func TestTheIntroScrollsEveryFeatureWhileTheWordHolds(t *testing.T) {
-	v := &view{w: 1280, h: 600, pw: 1280, ph: 600}
-	lg := newLogo(3, v).(*logo)
-	if lg.intro != introLine() {
-		t.Fatalf("the intro scrolls %q", lg.intro)
-	}
-	at := 0
-	for _, f := range features {
-		i := strings.Index(lg.intro[at:], f)
-		if i < 0 {
-			t.Fatalf("the line lacks %q after its character %d", f, at)
-		}
-		at += i + len(f)
-	}
-	if !strings.HasSuffix(lg.intro, "ZETTARACK.COM") {
-		t.Errorf("the line ends %q", lg.intro[max(len(lg.intro)-20, 0):])
-	}
-	adv := float64(6 * lg.is)
-	if gone := 12 + (float64(v.pw)+float64(len(lg.intro))*adv)/lg.ispeed; gone > IntroLen-10 {
-		t.Errorf("the line's end leaves the picture at %.1f s, after the word goes at %v", gone, IntroLen-10)
-	}
-	if on := float64(v.pw) / lg.ispeed; on < 6 {
-		t.Errorf("a letter is on the picture %.1f s: too fast to read", on)
-	}
-	v.px = make([]vec3, v.w*v.h)
-	lg.frame(v, 70)
-	with := append([]vec3(nil), v.px...)
-	lg.intro = ""
-	v.px = make([]vec3, v.w*v.h)
-	lg.frame(v, 70)
-	differ := 0
-	for i := range with {
-		if with[i] != v.px[i] {
-			differ++
-		}
-	}
-	if differ < 2000 {
-		t.Errorf("the line drew %d pixels", differ)
 	}
 }
 

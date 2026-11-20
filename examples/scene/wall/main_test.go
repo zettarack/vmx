@@ -384,6 +384,78 @@ func TestAVerbTakenAndNeverSaidIsHandedOutAgain(t *testing.T) {
 	}
 }
 
+// A verb handed out again for the keeper's silence is still ended by the
+// keeper's word when it comes late, before anything has taken the verb
+// again: the keeper's job on the tile ran on and finished, and the verb is
+// not done twice. A word for a tile whose verb was never taken ends
+// nothing, and once the verb is taken again it is that take's word that
+// ends it. (2026-11-19: a minute's clones on a busy host were handed out
+// again, their words came a moment late and ended nothing, and ten tiles
+// were cloned twice.)
+func TestALateWordEndsAVerbHandedOutAgain(t *testing.T) {
+	s := fourTiles()
+	ask(t, s, "POST", "/do/clone", "[1]")
+	ask(t, s, "POST", "/do/snapshot", "[1]")
+	ask(t, s, "POST", "/acting/1", "")
+	s.tiles[1].actAt = time.Now().Add(-actFor - time.Second)
+	if a := askedOf(t, s); len(a.Acts) != 1 || a.Acts[0].Do != "clone" {
+		t.Fatalf("handed out again: %+v", a.Acts)
+	}
+	if c := ask(t, s, "POST", "/did/1", "cloned as 4 in 61.0 s"); c != http.StatusNoContent {
+		t.Fatalf("the late word: %d", c)
+	}
+	if q := verbsOf(s.tiles[1].queue); q != "snapshot" {
+		t.Fatalf("after the late word the tile waits for %q, want the snapshot alone", q)
+	}
+	if a := askedOf(t, s); len(a.Acts) != 1 || a.Acts[0].Do != "snapshot" {
+		t.Fatalf("after the late word the keeper is asked %+v, want the snapshot", a.Acts)
+	}
+	// A word for a verb nobody took ends nothing.
+	if c := ask(t, s, "POST", "/did/1", "a stray word"); c != http.StatusNoContent {
+		t.Fatalf("a stray word: %d", c)
+	}
+	if q := verbsOf(s.tiles[1].queue); q != "snapshot" {
+		t.Fatalf("a word for a verb not taken ended it: %q left", q)
+	}
+	// Handed out again and taken again: that take's word ends it, once.
+	ask(t, s, "POST", "/acting/1", "")
+	s.tiles[1].actAt = time.Now().Add(-actFor - time.Second)
+	askedOf(t, s)
+	ask(t, s, "POST", "/acting/1", "")
+	ask(t, s, "POST", "/did/1", "snapshot at 19:00:00")
+	if q := verbsOf(s.tiles[1].queue); q != "" {
+		t.Fatalf("taken again and said: %q left", q)
+	}
+	ask(t, s, "POST", "/did/1", "the first take's word, later still")
+	if a := askedOf(t, s); len(a.Acts) != 0 {
+		t.Fatalf("a word after the queue emptied asked %+v", a.Acts)
+	}
+	// Handed out again, then a reset the keeper took down and never
+	// brought up, which lapses after resetFor: the tiles stay as the reset
+	// left them, and a word from before it ends no verb pressed after it.
+	ask(t, s, "POST", "/do/clone", "[2]")
+	ask(t, s, "POST", "/acting/2", "")
+	s.tiles[2].actAt = time.Now().Add(-actFor - time.Second)
+	askedOf(t, s)
+	if c := ask(t, s, "POST", "/reset", ""); c != http.StatusNoContent {
+		t.Fatalf("reset: %d", c)
+	}
+	if c := ask(t, s, "POST", "/reset/down", ""); c != http.StatusNoContent {
+		t.Fatalf("reset down: %d", c)
+	}
+	if c := ask(t, s, "POST", "/do/snapshot", "[2]"); c != http.StatusConflict {
+		t.Fatalf("a press while the wall is taken down: %d, want refused", c)
+	}
+	s.phaseAt = time.Now().Add(-resetFor - time.Second)
+	if c := ask(t, s, "POST", "/do/snapshot", "[2]"); c != http.StatusNoContent {
+		t.Fatalf("a press once the reset lapsed: %d", c)
+	}
+	ask(t, s, "POST", "/did/2", "cloned as 5 in 70.0 s")
+	if q := verbsOf(s.tiles[2].queue); q != "snapshot" {
+		t.Fatalf("a word from before the reset ended the snapshot pressed after it: %q left", q)
+	}
+}
+
 func TestAClonesPlaceIsToldBeforeItDraws(t *testing.T) {
 	s := fourTiles()
 	if c := ask(t, s, "POST", "/did/6", "a clone of tile-01"); c != http.StatusNoContent {
@@ -1202,7 +1274,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		// The wall fits the window, the lines above and the buttons under it in view.
 		"function fit(){", "new ResizeObserver(fit).observe($('dock'));", "if(tiles.length!==had)fit();",
 		// cfg's panel lies over the wall: opening it changes nothing's size.
-		"#panel{position:absolute;bottom:100%;", "if(location.hash==='#cfg')cfg(true);", "document.body.classList.toggle('quiet',sh.text===false);", "takes the page's own text away", "the words a scene writes are part of the picture and stay",
+		"#panel{position:absolute;bottom:100%;", "if(location.hash==='#cfg')cfg(true);", "document.body.classList.toggle('quiet',sh.text===false&&!demo);", "takes the page's own text away", "the words a scene writes are part of the picture and stay",
 		// The names and counts fade when nobody stirs.
 		"body.idle .t span,body.idle .t b{opacity:0;transition:opacity 1.2s}", "Date.now()-stirred>6000&&panel.hidden&&!sel.size", "fade six seconds after",
 		// The buttons fold into cfg under the wall, closed at first.
@@ -1214,7 +1286,7 @@ func TestThePageHasTheShowsControlsAndSaysThem(t *testing.T) {
 		"choose(i,painting);tools();cfg(false);});", "$('cfg').innerHTML='cfg'+(sel.size?' <b>'+sel.size+'</b>':'');", "Choosing a tile puts cfg's buttons away",
 		// The picture fits the window; clones are rows below it at its size.
 		"h=tiles[n-1].d.getBoundingClientRect().bottom-wall.getBoundingClientRect().top+3", "Clones take rows below the picture at the picture's own size",
-		"seven minutes", "three minutes after every two scenes",
+		"seven minutes", "a minute after every two scenes",
 		// What vmx gives you, each as true as vmx's own pages say it.
 		"Absolutely everything is a dataset.", "Blue and green, at every level.", "Kubernetes? Yes.", "kbx is in alpha, on the beta line.",
 	} {
@@ -1431,6 +1503,183 @@ func TestShutDownIsAskedOnceAndTheKeeperIsTold(t *testing.T) {
 	} {
 		if !strings.Contains(page, said) {
 			t.Errorf("the page does not have %q", said)
+		}
+	}
+}
+
+// demoOf is what the state says a demo says, nil when none runs.
+func demoOf(t *testing.T, s *wall) *demoSay {
+	t.Helper()
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/state", nil))
+	var d struct {
+		Demo *demoSay `json:"demo"`
+		Cols int      `json:"cols"`
+		Rows int      `json:"rows"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatalf("state: %v: %s", err, w.Body.String())
+	}
+	if d.Cols != s.cols || d.Rows != s.rows {
+		t.Errorf("the state says %d x %d of a wall of %d x %d", d.Cols, d.Rows, s.cols, s.rows)
+	}
+	return d.Demo
+}
+
+// A demo says what every page open on the wall shows, as it was given, and
+// only the pages: the keeper's question and the tiles' frames carry none
+// of it. Each say takes the place of the one before, and the demo ends
+// when it says so.
+func TestADemoSaysWhatEveryPageShowsUntilItEnds(t *testing.T) {
+	s := newWall(8, 5, 16, 16, time.Now())
+	if demoOf(t, s) != nil {
+		t.Fatal("a new wall says a demo runs")
+	}
+	first := `{"big":"This is a container.","small":"one small program · drawing one square","focus":[19],"marks":{"container":"container · scene-agent:18","vm":"Firecracker microVM"},"plain":true}`
+	if c := ask(t, s, "POST", "/demo", first); c != http.StatusNoContent {
+		t.Fatalf("a demo's say: %d", c)
+	}
+	d := demoOf(t, s)
+	if d == nil || d.Big != "This is a container." || d.Small != "one small program · drawing one square" ||
+		!slices.Equal(d.Focus, []int{19}) || len(d.Marks) != 2 || d.Marks["vm"] != "Firecracker microVM" || d.Marks["container"] != "container · scene-agent:18" || !d.Plain {
+		t.Fatalf("the state says the demo says %+v", d)
+	}
+	for _, path := range []string{"/asked", "/frame"} {
+		w := httptest.NewRecorder()
+		s.routes().ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if strings.Contains(w.Body.String(), "container.") || strings.Contains(w.Body.String(), `"demo"`) {
+			t.Errorf("%s carries the demo: %s", path, w.Body.String())
+		}
+	}
+	// The next say, of the whole wall in words not ASCII, takes its place.
+	if c := ask(t, s, "POST", "/demo", `{"big":"Ein Behälter, 容器","small":""}`); c != http.StatusNoContent {
+		t.Fatalf("the next say: %d", c)
+	}
+	if d := demoOf(t, s); d == nil || d.Big != "Ein Behälter, 容器" || len(d.Focus) != 0 || len(d.Marks) != 0 || d.Plain {
+		t.Fatalf("after the next say the demo says %+v", d)
+	}
+	if c := ask(t, s, "DELETE", "/demo", ""); c != http.StatusNoContent {
+		t.Fatalf("the demo's end: %d", c)
+	}
+	if d := demoOf(t, s); d != nil {
+		t.Fatalf("ended, the demo still says %+v", d)
+	}
+	// Ending one that has ended is no error.
+	if c := ask(t, s, "DELETE", "/demo", ""); c != http.StatusNoContent {
+		t.Errorf("the end of no demo: %d", c)
+	}
+}
+
+// What a demo says is checked before any of it is kept: each bad say is
+// refused and the one before it stays.
+func TestADemoSayThatIsWrongIsRefusedAndTheOneBeforeStays(t *testing.T) {
+	s := newWall(8, 5, 16, 16, time.Now())
+	good := `{"big":"Snapshot it.","small":"one zfs call","focus":[3]}`
+	if c := ask(t, s, "POST", "/demo", good); c != http.StatusNoContent {
+		t.Fatalf("a good say: %d", c)
+	}
+	words := func(n int) string { return strings.Repeat("a", n) }
+	focus := func(n int) string {
+		f := make([]string, n)
+		for i := range f {
+			f[i] = itoa(i)
+		}
+		return "[" + strings.Join(f, ",") + "]"
+	}
+	for name, body := range map[string]string{
+		"no body":                        "",
+		"not JSON":                       "{",
+		"a field it does not know":       `{"big":"x","colour":"red"}`,
+		"big too long":                   `{"big":"` + words(demoBig+1) + `"}`,
+		"small too long":                 `{"small":"` + words(demoSmall+1) + `"}`,
+		"a line break":                   `{"big":"two\nlines"}`,
+		"a tab":                          `{"small":"a\tb"}`,
+		"a bell":                         `{"big":"ring \u0007"}`,
+		"bytes that are not UTF-8":       "{\"big\":\"\xff\xfe\"}",
+		"a body too long, all else good": `{"big":"x"}` + strings.Repeat(" ", demoBody),
+		"a place below 0":                `{"focus":[-1]}`,
+		"a place past the last":          `{"focus":[` + itoa(maxTiles) + `]}`,
+		"a place twice":                  `{"focus":[3,3]}`,
+		"too many places":                `{"focus":` + focus(demoFocus+1) + `}`,
+		"a place that is not a number":   `{"focus":["3"]}`,
+		"a mark it does not know":        `{"focus":[3],"marks":{"halo":"x"}}`,
+		"a mark's words too long":        `{"focus":[3],"marks":{"vm":"` + words(demoMark+1) + `"}}`,
+		"a mark's words two lines":       `{"focus":[3],"marks":{"vm":"a\nb"}}`,
+		"marks with no place":            `{"marks":{"vm":"x"}}`,
+		"marks over two places":          `{"focus":[3,4],"marks":{"vm":"x"}}`,
+	} {
+		if c := ask(t, s, "POST", "/demo", body); c != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", name, c)
+		}
+		if d := demoOf(t, s); d == nil || d.Big != "Snapshot it." || !slices.Equal(d.Focus, []int{3}) {
+			t.Fatalf("%s: the say before it did not stay: %+v", name, d)
+		}
+	}
+	// At the bounds, each is taken.
+	for name, body := range map[string]string{
+		"big at its most":         `{"big":"` + words(demoBig) + `"}`,
+		"small at its most":       `{"small":"` + words(demoSmall) + `"}`,
+		"the most places":         `{"focus":` + focus(demoFocus) + `}`,
+		"the last place":          `{"focus":[` + itoa(maxTiles-1) + `]}`,
+		"every mark, at its most": `{"focus":[0],"marks":{"container":"` + words(demoMark) + `","vm":"v","golden":"g","volume":"o","counts":"c"}}`,
+		"nothing said at all":     `{}`,
+	} {
+		if c := ask(t, s, "POST", "/demo", body); c != http.StatusNoContent {
+			t.Errorf("%s: %d, want 204", name, c)
+		}
+	}
+}
+
+// A demo that says nothing for demoFor is over: a script killed outright
+// leaves no page in it for good.
+func TestADemoThatSaysNothingForAWhileIsOver(t *testing.T) {
+	s := newWall(8, 5, 16, 16, time.Now())
+	if c := ask(t, s, "POST", "/demo", `{"big":"Delete it."}`); c != http.StatusNoContent {
+		t.Fatalf("a say: %d", c)
+	}
+	s.mu.Lock()
+	s.demoAt = time.Now().Add(-demoFor + time.Minute)
+	s.mu.Unlock()
+	if demoOf(t, s) == nil {
+		t.Fatal("a minute before its end the demo is over")
+	}
+	s.mu.Lock()
+	s.demoAt = time.Now().Add(-demoFor - time.Second)
+	s.mu.Unlock()
+	if d := demoOf(t, s); d != nil {
+		t.Fatalf("past demoFor the demo still says %+v", d)
+	}
+}
+
+// The page follows a demo: its two lines under the picture, put in as
+// text and never as markup; the places framed, the marks over one; the
+// page's own numbers and the tiles' names and counts in view; its buttons,
+// keys and clicks away while it lasts.
+func TestThePageFollowsADemo(t *testing.T) {
+	w := httptest.NewRecorder()
+	newWall(8, 5, 16, 16, time.Now()).routes().ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	page := w.Body.String()
+	for _, said := range []string{
+		`<div id="say" aria-live="polite"><b id="sayb"></b><span id="says"></span></div>`,
+		"showTick(s.show);demoTick(s);", "function demoTick(s){", "function camera(){", "if(demo){camera();return;}",
+		"sayb.textContent=demo.big;says.textContent=demo.small;", "says.textContent=d.small;", "m.firstChild.textContent=d.marks[k];",
+		"['container','vm','golden','volume','counts']",
+		"body.demo #dock,body.demo #info,body.demo #clock{display:none}", "body.demo .t span,body.demo .t b{opacity:1}",
+		"body.demo,body.demo *{cursor:none}",
+		"body.demo.plain .t span,body.demo.plain .t b{opacity:0}", "document.body.classList.toggle('plain',d.plain===true);", "classList.remove('demo','near','plain')",
+		"sh.text===false&&!demo", "&&!sel.size&&!demo", "e.button!==0||demo)return;", "if(demo)return;\nif(e.key==='Escape')",
+		"<code>05-demoscene-wall.sh --demo</code>",
+	} {
+		if !strings.Contains(page, said) {
+			t.Errorf("the page does not have %q", said)
+		}
+	}
+	if regexp.MustCompile(`innerHTML\s*=\s*(d|demo|was)\.`).MatchString(page) {
+		t.Error("the page puts a demo's words in as markup")
+	}
+	for _, k := range demoMarks {
+		if !strings.Contains(page, "#mk-"+k) {
+			t.Errorf("the page has no look for the mark %s", k)
 		}
 	}
 }

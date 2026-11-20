@@ -44,7 +44,7 @@ canyon by moonlight:
 
 | Family | What it is |
 |---|---|
-| vmx | the intro: VMX caught out of falling bits, zettarack.com typed under it, and a scroller of what vmx does riding over copper bars, each line one the feature matrix says; three minutes, opening the show and coming back after every two scenes |
+| vmx | the intro: VMX caught out of falling bits, zettarack.com typed under it, the word held while light runs across it, and its bits falling away again; a minute, opening the show and coming back after every two scenes |
 | grid | a race on a floor of light: cycles of light lay walls behind them, turning only at right angles, the horizon glowing and a quiet line of facts along it |
 | land | a low flight over a landscape made for the part, voxel style: peaks, hills, mesas, islands or dunes, at an hour of its own |
 | day | a whole day in seven minutes over hills and a lake: stars, on some nights the aurora, dawn, the sun's arc, dusk and the moon |
@@ -138,8 +138,8 @@ wall do their verb to every tile chosen, at once:
 | **Snapshot** | its disk and its volume as they are now, at one moment, in one zfs call (`vmx container snapshot`) |
 | **Restore** | its disk and its volume put back to its newest snapshot together: the microVM stopped, both returned and booted again, in under a second; both counts in its corner go back to what they were (`vmx container rollback --restart`). A snapshot a clone stands on is newer than it: the restore is refused until the clone is removed, and the tile says so. With one tile chosen, its snapshots are listed under the buttons, oldest first: a press on one restores the tile to that one, and the snapshots newer than it go with it |
 | **Rebuild** | its microVM and its disk destroyed and a new one booted from the image on the same volume: the disk's count starts again from nothing and the volume's goes on, as a program's data does when the program is put on a new machine, its snapshots with the old one; the tile says how long it was away. An empty place gets a tile again |
-| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:18-green` (the same program, drawing in green where the first draws in blue: a new version), on the same volume, eight at a time over the wall while the rest draw, so green rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. A tile on the new version already says so. A rolling update: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced |
-| **Roll back** | the same, back to the first image, `scene-agent:18`: green to blue, eight at a time. It changes the program and keeps the data (the volume's count goes on); Restore is the other way back, the data to a snapshot with the program kept. A tile on the first version says there is nothing to roll back to |
+| **Update** | its microVM and its disk destroyed and a new one booted from the wall's other image, `scene-agent:20-green` (the same program, drawing in green where the first draws in blue: a new version), on the same volume, eight at a time over the wall while the rest draw, so green rolls over the picture a row at a time; the disk's count starts again and the volume's goes on, and its snapshots go with the old machine. A tile on the new version already says so. A rolling update: the old version is not kept running beside the new, and each tile is without a picture for a second or two while its machine is replaced |
+| **Roll back** | the same, back to the first image, `scene-agent:20`: green to blue, eight at a time. It changes the program and keeps the data (the volume's count goes on); Restore is the other way back, the data to a snapshot with the program kept. A tile on the first version says there is nothing to roll back to |
 | **Kill** | its microVM ended as a crash or a power cut would end it: the process killed outright, with no shutdown. Nothing asks for it back: the keeper finds it stopped, as it would a machine that died any other way, and starts it again with its disk and its volume as they were; the tile says how long its place was without a picture |
 | **Clone** N | as many new microVMs from its disk and its volume as they are, at one moment, as the box beside the button says, 1 to 1024 (`vmx container clone`, sixteen at a time): each a ZFS clone, its volume one too (vmx names the copy NEW-VOLUME), so it copies nothing and takes no space until it writes, named for the next places after the picture's own; the wall grows, and each clone goes on counting from the counts it was cloned with. The wall's places, the host's memory (the keeper leaves it 2 GiB) and the addresses the host's network gives out end it, whichever comes first, and the tile says how many were made and why it stopped; a clone that gets no address is taken away again |
 | **Remove** | the tile taken away with its volume and their snapshots; its place stays empty. A tile a clone stands on is not removed until the clone is, and a volume a clone's copy stands on stays until the copy goes: the keeper takes it away then |
@@ -160,6 +160,31 @@ waits each step out until the keeper has done it (a Kill until the keeper
 has started every tile killed again), and pauses the same between them;
 open the page first. The keeper leaves the host 2 GiB of
 memory: a clone or a new tile past that is refused, on the tile.
+
+`05-demoscene-wall.sh --demo` walks through the wall from one container
+up, for a recording to cut from, and makes the wall first when there is
+none (with no argument the script makes the wall and its page alone, no
+demo). Each step is done as an operator would do it: the keeper stopped
+and started with `systemctl`, a tile removed with `vmx container remove`
+by hand, the rest pressed as the page presses its buttons. What each step
+shows is said under the picture on every page open on the wall, with the
+numbers that run measured (`POST /demo`: two lines, the places to frame,
+the marks to lay over one; `DELETE /demo` ends it, and a demo that says
+nothing for fifteen minutes is over by itself). The page frames the tiles
+the demo is about, keeps its own numbers and the tiles' names and counts
+in view, puts its buttons away, and takes no key or click while it lasts.
+It runs: the wall on the vmx intro under its title; down to one tile, with
+marks for its container, its Firecracker microVM, its disk (a ZFS clone of
+the image's golden), its volume and its two counts; the keeper stopped
+and the tile removed (it stays gone), the keeper started (it comes back
+on the same volume) and the tile removed again (it comes back by itself);
+a snapshot and a restore; three more from the same golden and the rest by
+the keeper; every tile cloned once and once again (40, 80, 160), with
+what their disks take as full copies and as ZFS keeps them; a reset; eight
+killed and back; the new version rolled out and rolled back; eight
+rebuilt; one cloned eight times; and the wordmark again. `HOLD` (7) is the
+seconds each line stays. Open the page first, full screen or in a window
+of the shape to record (1:1, 4:5, 16:9): it lays itself out for it.
 
 The page cannot do any of that by itself, and that is the point: the wall
 is a program in a container, and nothing in a container commands the
@@ -209,7 +234,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:18`, `scene-agent:18-green` and `scene-wall:29`, the
+archives, `scene-agent:20`, `scene-agent:20-green` and `scene-wall:35`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -230,12 +255,12 @@ On any machine with Go and Podman (or Docker):
 cd scene
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
-podman build -f Containerfile.agent -t scene-agent:18 .
-podman build -f Containerfile.green -t scene-agent:18-green .
-podman build -f Containerfile.wall -t scene-wall:29 .
-podman save --format oci-archive -o scene-agent.tar scene-agent:18
-podman save --format oci-archive -o scene-agent-green.tar scene-agent:18-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:29
+podman build -f Containerfile.agent -t scene-agent:20 .
+podman build -f Containerfile.green -t scene-agent:20-green .
+podman build -f Containerfile.wall -t scene-wall:35 .
+podman save --format oci-archive -o scene-agent.tar scene-agent:20
+podman save --format oci-archive -o scene-agent-green.tar scene-agent:20-green
+podman save --format oci-archive -o scene-wall.tar scene-wall:35
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -247,9 +272,9 @@ of their own (the build stamps its time in them): name them, as printed
 above.
 
 ```sh
-AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:18 \
-NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:18-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:29 \
+AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:20 \
+NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:20-green \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:35 \
 ./05-demoscene-wall.sh
 ```
 

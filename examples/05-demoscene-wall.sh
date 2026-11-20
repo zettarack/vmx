@@ -4,7 +4,7 @@
 # WHAT IT IS
 # One picture, hours of scenes (scene/show: eleven families, seven minutes
 # each, each with a seed of its own; the VMX intro, the wordmark with
-# zettarack.com under it and a scroller of what vmx does, opens the show and
+# zettarack.com typed under it, opens the show and
 # comes back after every two scenes; the page's Before, Hold, Next and a
 # button for each family, or the arrows, space, 1 to 0 and -, move the show for
 # every tile at once, and its extras lay stars, rasters, scanlines, a
@@ -71,7 +71,7 @@
 #                   press on one restores the tile to that one, and the
 #                   snapshots newer than it go with it, as the tile says
 #   Update          its microVM and its disk destroyed and a new one booted
-#                   from the wall's other image, scene-agent:18-green (the
+#                   from the wall's other image, scene-agent:20-green (the
 #                   same program drawing in green where the first draws in
 #                   blue: a new version), on the
 #                   same volume, eight at a time over the wall while the
@@ -81,7 +81,7 @@
 #                   snapshots go with the old machine. A tile on the new
 #                   version already says so. A Rebuild, a clone or a tile
 #                   run again keeps the version it has
-#   Roll back       the same, back to the first image, scene-agent:18: green
+#   Roll back       the same, back to the first image, scene-agent:20: green
 #                   to blue, eight at a time over the wall. It changes the
 #                   program and keeps the data (the volume's count goes on);
 #                   Restore is the other way back, the data to a snapshot
@@ -194,11 +194,18 @@
 #                                       the keeper has them back), Restore every tile,
 #                                       Rebuild eight, Update every tile, Roll back every tile, Clone one twelve
 #                                       times, Reset; open the page first
+#   ./05-demoscene-wall.sh --demo       the wall (made first when there is none) explained from one container up, for a recording to cut from:
+#                                       its words under the picture on every page open on the wall, with the
+#                                       numbers it measured; the keeper stopped and started, a tile removed
+#                                       by hand, snapshot and restore, the rest run, the wall doubled and
+#                                       doubled again, a reset, a kill, the new version and back, rebuilds,
+#                                       clones; HOLD (7) seconds a line; open the page first, in a window of
+#                                       the shape to record
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
 # The images come with the script: scene/images holds the archives of
-# the three, scene-agent:18, its next version scene-agent:18-green and
-# scene-wall:29, which it takes with no argument and checks against the
+# the three, scene-agent:20, its next version scene-agent:20-green and
+# scene-wall:35, which it takes with no argument and checks against the
 # digests below, so a clone of the examples, or a host whose installer put
 # them on it, runs the wall with no registry and no network.
 # scene/README.md builds them again from their sources. --from DIR takes
@@ -214,10 +221,10 @@
 #   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:18 NEXT_IMAGE=ghcr.io/you/scene-agent:18-green WALL_IMAGE=ghcr.io/you/scene-wall:29 ./05-demoscene-wall.sh
-#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:18 \
-#   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:18-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:29 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:20 NEXT_IMAGE=ghcr.io/you/scene-agent:20-green WALL_IMAGE=ghcr.io/you/scene-wall:35 ./05-demoscene-wall.sh
+#   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:20 \
+#   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:20-green \
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:35 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -263,13 +270,13 @@ orphans=$here/.made/05-demoscene-wall.orphans
 protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
-# The images' digests, the tiles' scene-agent:18 and its second version
-# scene-agent:18-green, and the wall's scene-wall:29,
+# The images' digests, the tiles' scene-agent:20 and its second version
+# scene-agent:20-green, and the wall's scene-wall:35,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
-agent_digest=sha256:d4786a7db8892efbea2d9ea6b38d6e62615bc9da54d0ece7f078285ce3b12885
-wall_digest=sha256:fb79675b215b173719341b0cb54f8102ebd9f03b2663de20963249191e1fa9e6
-next_digest=sha256:feb8b7aca2a6c2c0ba456f34cded9bb3ff77a7b21a7194f4e26f69d42fdd1c21
+agent_digest=sha256:10cd4b1bb61220c837c80c930f7e28ea1806136e1398cdb895abbd843c90b4ea
+wall_digest=sha256:610d3e23b2d874636a2887cb6d2dddad2262bef6b52a4b942d9800e64ddb2d0a
+next_digest=sha256:d98802baf9ce676b0db3bb5793bbf02940d24399d341565b53852b6ef2f383f2
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
 # With no argument and no image named in the environment, the images are
@@ -297,13 +304,13 @@ if [ "${1:-}" = --from ]; then
 		fi
 		die "$from does not hold scene-agent.tar, scene-agent-green.tar and scene-wall.tar"
 	fi
-	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:18}
-	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:18-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:29}
+	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:20}
+	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:20-green}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:35}
 fi
-agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:18}
-next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:18-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:29}
+agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:20}
+next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:20-green}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:35}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -507,63 +514,85 @@ if [ "${1:-}" = --keep ]; then
 	exit 0
 fi
 
-# --show: the wall's own show, for a recording: the same take every time,
-# on the wall that is there, pressed as the page presses its buttons (POST
-# /do/VERB with the tiles' numbers), each step waited out until the
-# keeper has done it, with the same pauses between. Open the page first:
-# what it shows is what is recorded.
-if [ "${1:-}" = --show ]; then
-	[ $# -eq 1 ] || die "usage: ${0##*/} --show"
-	[ -f "$made" ] && [ -f "$kept" ] || die "no wall to show: ${0##*/} makes one first"
+# drive WHAT: what --show and --demo share: the wall that is there, its
+# address and its tiles, and the page's buttons pressed as the page presses
+# them (POST /do/VERB with the tiles' numbers), each waited out until the
+# keeper has done it.
+drive() {
+	[ -f "$made" ] && [ -f "$kept" ] || die "no wall to $1: ${0##*/} makes one first"
 	at=$(fact at)
 	n=$(fact tiles)
 	[[ $n =~ ^[0-9]+$ ]] && [ -n "$at" ] || die "$kept does not say the wall's address and how many tiles"
 	url=http://$at:8090
 	systemctl is-active --quiet "$keeper_unit" || pgrep -f -- '05-demoscene-wall\.sh --keep-here$' >/dev/null \
 		|| die "no keeper runs, and nothing pressed would be done: ${0##*/} --keep first"
-	state() { curl -sf --max-time 2 "$url/state"; }
-	step() { printf '%s  %s\n' "$(date +%T)" "$*"; }
-	# press VERB [N] TILE...: a button, as the page presses it.
-	press() {
-		local what=$1 q=
-		shift
-		if [ "$what" = clone ]; then q="?n=$1"; shift; fi
-		curl -sf -o /dev/null --max-time 2 -X POST --data-binary "[$(IFS=,; echo "$*")]" "$url/do/$what$q" || die "the wall did not take $what"
-	}
-	# settle SECS: until no tile has a verb in hand or waiting, and every
-	# place with a tile draws, SECS at most.
-	settle() {
-		for _ in $(seq 1 $(($1 * 5))); do
-			state | jq -e '[.tiles[] | select(.act or .asked or (.v > 0 and .age_ms > 2000))] | length == 0' >/dev/null && return 0
-			sleep 0.2
-		done
-		step "  still busy after $1 s: on to the next step"
-	}
-	# gens: how many microVMs each place has had, by its number.
-	gens() { state | jq -c '[.tiles[].gen]'; }
-	# back GENS TILE...: until each tile named has drawn as a new boot since
-	# GENS was read (its place has had one more microVM), 60 s at most: a
-	# killed tile is started again by the keeper, which the show waits out,
-	# so the next step does not start on a tile still down. 2026-11-18: the
-	# Kill step moved on in 5 s, its eight still down for the Restore.
-	back() {
-		local g=$1 list
-		shift
-		list="[$(IFS=,; echo "$*")]"
-		for _ in $(seq 1 300); do
-			state | jq -e --argjson g "$g" --argjson t "$list" '. as $s | all($t[]; $s.tiles[.].gen > $g[.] and $s.tiles[.].age_ms <= 2000)' >/dev/null && return 0
-			sleep 0.2
-		done
-		step "  not every tile killed was back after 60 s: on to the next step"
-	}
-	# reset: the wall made again, waited out until it is whole.
-	reset() {
-		curl -sf -o /dev/null --max-time 2 -X POST "$url/reset" || die "the wall did not take the reset"
-		for _ in $(seq 1 25); do [ "$(state | jq -r '.reset')" != "" ] && break; sleep 0.2; done
-		for _ in $(seq 1 600); do [ "$(state | jq -r '.reset')" = "" ] && break; sleep 0.2; done
-		step "  the wall is whole: $(state | jq -r '"\(.full_n) tiles up in \(.full_s * 10 | floor / 10) s"')"
-	}
 	mapfile -t every < <(seq 0 $((n - 1)))
+}
+# state: the wall as the page sees it. Five seconds at most: a host drawing
+# 160 tiles answered past two (2026-11-19).
+state() { curl -sf --max-time 5 "$url/state"; }
+step() { printf '%s  %s\n' "$(date +%T)" "$*"; }
+tile_name() { printf 'tile-%02d' "$1"; }
+# since NANOSECONDS: how long ago that was, in seconds and tenths.
+since() {
+	local ms=$((($(date +%s%N) - $1) / 1000000))
+	printf '%d.%d' $((ms / 1000)) $((ms % 1000 / 100))
+}
+# press VERB [N] TILE...: a button, as the page presses it.
+press() {
+	local what=$1 q=
+	shift
+	if [ "$what" = clone ]; then q="?n=$1"; shift; fi
+	curl -sf -o /dev/null --max-time 2 -X POST --data-binary "[$(IFS=,; echo "$*")]" "$url/do/$what$q" || die "the wall did not take $what"
+}
+# settle SECS: until no tile has a verb in hand or waiting, and every
+# place with a tile draws, SECS at most.
+settle() {
+	for _ in $(seq 1 $(($1 * 5))); do
+		state | jq -e '[.tiles[] | select(.act or .asked or (.v > 0 and .age_ms > 2000))] | length == 0' >/dev/null && return 0
+		sleep 0.2
+	done
+	step "  still busy after $1 s: on to the next step"
+}
+# gens: how many microVMs each place has had, by its number.
+gens() { state | jq -c '[.tiles[].gen]'; }
+# drawn GENS SECS TILE...: whether each tile named has drawn as a new boot
+# since GENS was read (its place has had one more microVM), within SECS.
+drawn() {
+	local g=$1 secs=$2 list
+	shift 2
+	list="[$(IFS=,; echo "$*")]"
+	for _ in $(seq 1 $((secs * 5))); do
+		state | jq -e --argjson g "$g" --argjson t "$list" '. as $s | all($t[]; ($s.tiles[.].gen // 0) > ($g[.] // 0) and $s.tiles[.].v > 0 and $s.tiles[.].age_ms <= 2000)' >/dev/null && return 0
+		sleep 0.2
+	done
+	return 1
+}
+# back GENS TILE...: until each tile named has drawn as a new boot since
+# GENS was read, 60 s at most: a killed tile is started again by the
+# keeper, which the show waits out, so the next step does not start on a
+# tile still down. 2026-11-18: the Kill step moved on in 5 s, its eight
+# still down for the Restore.
+back() {
+	local g=$1
+	shift
+	drawn "$g" 60 "$@" || step "  not every tile killed was back after 60 s: on to the next step"
+}
+# reset: the wall made again, waited out until it is whole.
+reset() {
+	curl -sf -o /dev/null --max-time 2 -X POST "$url/reset" || die "the wall did not take the reset"
+	for _ in $(seq 1 25); do [ "$(state | jq -r '.reset')" != "" ] && break; sleep 0.2; done
+	for _ in $(seq 1 600); do [ "$(state | jq -r '.reset')" = "" ] && break; sleep 0.2; done
+	step "  the wall is whole: $(state | jq -r '"\(.full_n) tiles up in \(.full_s * 10 | floor / 10) s"')"
+}
+
+# --show: the wall's own show, for a recording: the same take every time,
+# on the wall that is there, pressed as the page presses its buttons, each
+# step waited out until the keeper has done it, with the same pauses
+# between. Open the page first: what it shows is what is recorded.
+if [ "${1:-}" = --show ]; then
+	[ $# -eq 1 ] || die "usage: ${0##*/} --show"
+	drive show
 	some=()
 	for k in 2 9 13 20 27 30 34 38; do [ "$k" -lt "$n" ] && some+=("$k"); done
 	step "the show, on $url ($n tiles); Ctrl+C ends it, and the wall stays as it is"
@@ -577,6 +606,316 @@ if [ "${1:-}" = --show ]; then
 	step "Clone tile 0, twelve times";    press clone 12 0; settle 180; sleep 6
 	step "Reset the wall";                reset
 	step "the show is over"
+	exit 0
+fi
+
+# --demo: the wall explained from one container up, for a recording to cut
+# from. Each step is done as an operator would do it: the keeper stopped
+# and started with systemctl, the tile removed with vmx by hand, the rest
+# pressed as the page presses its buttons; and what each one shows is said
+# under the picture on every page open on the wall (POST /demo), with the
+# numbers this run measured, the page framing the tiles it is about. Open
+# the page first, full screen or in a window of the shape to record
+# (1:1, 4:5 or 16:9: the page lays itself out for it). HOLD (7) is the
+# seconds each line stays. It leaves the wall whole, with its keeper.
+if [ "${1:-}" = --demo ]; then
+	[ $# -eq 1 ] || die "usage: ${0##*/} --demo"
+	# HOLD read before anything is made: a wrong one refused the demo only
+	# after the wall had been made for it (2026-11-19, HOLD=1).
+	hold=${HOLD:-7}
+	[[ $hold =~ ^[0-9]+$ ]] && [ "$hold" -ge 2 ] && [ "$hold" -le 60 ] || die "HOLD is the seconds a line stays, 2 to 60: not $hold"
+	# No wall here yet: made first, as this script with no argument makes
+	# it (the wall and its page alone, no demo, is that default).
+	if [ ! -f "$made" ] || [ ! -f "$kept" ]; then
+		echo "No wall here yet: it is made first."
+		"$here/${0##*/}" || die "the wall was not made, and there is nothing to show"
+	fi
+	drive demo
+	systemctl is-active --quiet "$keeper_unit" || die "the keeper runs in a terminal, not as the service $keeper_unit: Ctrl+C there, then ${0##*/} --keep (the demo stops it and starts it again)"
+	doc=$(state) || die "the wall at $url does not answer"
+	cols=$(jq -r '.cols // empty' <<<"$doc")
+	rows=$(jq -r '.rows // empty' <<<"$doc")
+	[[ $cols =~ ^[0-9]+$ ]] && [[ $rows =~ ^[0-9]+$ ]] || die "this wall is older than --demo: ${0##*/} --remove, then make it again"
+	[ "$cols" -ge 3 ] && [ "$rows" -ge 3 ] || die "the demo wants a wall of 3 x 3 tiles at least, not $cols x $rows"
+	# The places: the one the demo starts from (the middle: tile-19 of 8 x
+	# 5), the three it puts beside it, the rest; eight to kill and eight to
+	# rebuild, spread over the lower half, where most scenes are brightest.
+	mid_row=$(((rows - 1) / 2))
+	mid_col=$(((cols - 1) / 2))
+	h=$((mid_row * cols + mid_col))
+	hname=$(tile_name "$h")
+	trio=($((h + 1)) $((h + cols)) $((h + cols + 1)))
+	rest=()
+	for k in "${every[@]}"; do [ "$k" -ne "$h" ] && [ "$k" -ne "${trio[0]}" ] && [ "$k" -ne "${trio[1]}" ] && [ "$k" -ne "${trio[2]}" ] && rest+=("$k"); done
+	low_row=$((rows / 2))
+	low=$((low_row * cols))
+	eight=() other8=()
+	for ((k = low + 1; k < n && ${#eight[@]} < 8; k += 3)); do [ "$k" -ne "$h" ] && eight+=("$k"); done
+	for ((k = low + 2; k < n && ${#other8[@]} < 8; k += 3)); do [ "$k" -ne "$h" ] && other8+=("$k"); done
+	# word N: N in words up to twelve, else in figures; Word, capitalised.
+	word() { local w=(no one two three four five six seven eight nine ten eleven twelve); if [ "$1" -lt ${#w[@]} ]; then echo "${w[$1]}"; else echo "$1"; fi; }
+	Word() { local s; s=$(word "$1"); echo "${s^}"; }
+	csv() { local IFS=,; echo "$*"; }
+	# bytes N: N bytes in the units ZFS counts in, as the page writes them.
+	bytes() { awk -v b="$1" 'BEGIN { split("B KiB MiB GiB TiB", u, " "); k = 1; while (b >= 1024 && k < 5) { b /= 1024; k++ } printf ((k > 1 && b < 10) ? "%.1f %s" : "%.0f %s"), b, u[k] }'; }
+	# marks NAME...: the marks named, laid over the one place framed, with
+	# their words, as JSON.
+	marks() {
+		jq -cn --arg img "${agent##*/}" --arg vol "$(vol_of "$hname")" '
+			{container: "container", vm: "Firecracker microVM · its own kernel",
+			 golden: ("disk: a ZFS clone of the golden of " + $img), volume: ("volume " + $vol + " · ZFS · outlives the machine"),
+			 counts: "frames drawn: on its disk, then on its volume"} as $all
+			| [$ARGS.positional[] | {(.): $all[.]}] | add' --args "$@"
+	}
+	# tell BIG SMALL [FOCUS [MARKS]]: what every page open on the wall
+	# shows: BIG, and SMALL under it; FOCUS the places framed, comma
+	# separated (none: the whole wall); MARKS laid over the one framed. With
+	# plain=true the tiles' names and counts are put away (the wordmark's
+	# title and the end), the numbers being what the rest is about.
+	plain=false
+	tell() {
+		local body
+		body=$(jq -cn --arg b "$1" --arg s "$2" --arg f "${3:-}" --argjson m "${4:-null}" --argjson p "$plain" \
+			'{big: $b, small: $s, focus: ($f | split(",") | map(select(. != "") | tonumber)), marks: $m, plain: $p}') || die "the demo's words did not make JSON: $1"
+		curl -sf -o /dev/null --max-time 2 -X POST --data-binary "$body" "$url/demo" || step "  the wall did not take the line: $1"
+		step "$1  |  $2"
+	}
+	# said_like I WORDS SECS: whether place I's tile says something that
+	# starts with WORDS (what the keeper said of its last verb), within SECS.
+	said_like() {
+		for _ in $(seq 1 $(($3 * 5))); do
+			state | jq -e --argjson i "$1" --arg w "$2" '(.tiles[$i].said // "") | startswith($w)' >/dev/null && return 0
+			sleep 0.2
+		done
+		return 1
+	}
+	# roll VERB LOOK BIG: VERB pressed for every tile of the picture, and
+	# the line under BIG counting the tiles that draw in LOOK, until all do
+	# (took: how long that took), 240 s at most.
+	roll() {
+		local k=-1 c s0
+		s0=$(date +%s%N)
+		press "$1" "${every[@]}"
+		for _ in $(seq 1 480); do
+			c=$(state | jq --arg l "$2" --argjson n "$n" '[.tiles[:$n][] | select(.look == $l and .v > 0 and .age_ms <= 2000)] | length') || c=$k
+			if [ "$c" != "$k" ]; then
+				k=$c
+				tell "$3" "eight machines at a time, while the rest keep drawing · $k of $n $2"
+			fi
+			if [ "$k" -ge "$n" ]; then took=$(since "$s0"); return 0; fi
+			sleep 0.5
+		done
+		return 1
+	}
+	# The end, however it comes: the pages back to the wall, and the
+	# keeper running again if the demo had stopped it.
+	# shellcheck disable=SC2329 # called by the trap on EXIT, below
+	demo_end() {
+		curl -s -o /dev/null --max-time 2 -X DELETE "$url/demo" || true
+		systemctl is-active --quiet "$keeper_unit" || keeper_start >/dev/null
+	}
+	trap demo_end EXIT
+	trap 'exit 130' INT TERM
+	took=
+	step "the demo, on $url: $n tiles; it starts from $hname. Open the page first."
+
+	# Made ready: the wall made again, drawing the vmx intro (the wordmark
+	# landing out of falling bits, zettarack.com under it) under the title.
+	plain=true
+	tell "One picture. $n machines. One box." "a demo of vmx · the wall is being made ready"
+	reset
+	curl -sf -o /dev/null --max-time 2 -X POST "$url/show/vmx" || step "  the show did not go to the vmx intro"
+	tell "One picture. $n machines. One box." "a demo of vmx"
+	# The title holds two lines' time, room to start a recording; nothing
+	# waits for a key (2026-11-19: "get rid of that").
+	sleep $((hold * 2))
+
+	# Down to one: every tile but one taken away, and space on the picture.
+	plain=false
+	tell "Start with one." "every tile but $hname taken away"
+	press remove "${rest[@]}" "${trio[@]}"
+	for _ in $(seq 1 600); do
+		state | jq -e --argjson h "$h" '.tiles | to_entries | all(.key == $h or ((.value.act // "") == "" and (.value.v == 0 or .value.age_ms > 2000)))' >/dev/null && break
+		sleep 0.2
+	done
+	curl -sf -o /dev/null --max-time 2 -X POST "$url/show/space" || step "  the show did not go to space"
+	tell "Start with one." "every tile but $hname taken away" "$h"
+	sleep 3
+
+	# One container, each part of it.
+	tell "This is a container." "one small program, the same image for every tile, drawing one square of a picture" "$h" "$(marks container)"
+	sleep "$hold"
+	up=$(state | jq -r --argjson h "$h" '.tiles[$h].up_ms // 0')
+	if [ "$up" -gt 0 ]; then line="its own Linux kernel, which had the program running $(awk -v m="$up" 'BEGIN { printf "%.2f", m / 1000 }') s after it started"; else line="its own Linux kernel, jailed"; fi
+	tell "It runs in its own Firecracker microVM." "$line" "$h" "$(marks container vm)"
+	sleep "$hold"
+	own=$(state | jq -r --argjson h "$h" '.tiles[$h].own // 0')
+	if [ "$own" -gt 0 ]; then line="the image is unpacked once, as a dataset; this disk holds only what it wrote: $(bytes "$own")"; else line="the image is unpacked once, as a dataset; this disk holds only what it wrote"; fi
+	tell "Its disk is a ZFS clone of a golden image." "$line" "$h" "$(marks container vm golden)"
+	sleep "$hold"
+	tell "Its data is on a ZFS volume of its own." "a volume outlives the machine it is given to" "$h" "$(marks container vm golden volume)"
+	sleep "$hold"
+	tell "It counts every frame it draws, twice." "once on its disk, once on its volume: watch what each one survives" "$h" "$(marks container vm golden volume counts)"
+	sleep "$hold"
+	tell "No container engine on the host." "no Docker, no containerd: vmx runs the image in a microVM; the volume is plain ZFS, no storage plugin" "$h" "$(marks container vm golden volume counts)"
+	sleep "$hold"
+
+	# Deleted with nobody watching; the keeper; deleted again.
+	tell "Stop the keeper, and delete it." "\$ systemctl stop $keeper_unit; vmx container remove $hname" "$h"
+	systemctl stop "$keeper_unit" || die "the keeper did not stop"
+	vmx container remove "$hname" >/dev/null || die "vmx did not remove $hname"
+	for _ in $(seq 1 50); do state | jq -e --argjson h "$h" '.tiles[$h].age_ms > 2000' >/dev/null && break; sleep 0.2; done
+	tell "Gone, and nothing brings it back." "nothing is watching this wall: the machine and its disk are gone; its volume stays" "$h"
+	sleep "$hold"
+	tell "Start the keeper." "\$ systemctl start $keeper_unit: a small loop on this host that keeps the wall as it should be" "$h"
+	g=$(gens) || die "the wall did not say how it is"
+	s0=$(date +%s%N)
+	keeper_start >/dev/null
+	if drawn "$g" 60 "$h"; then line="a new machine in $(since "$s0") s: its disk's count started again, its volume's went on"; else line="the keeper runs it again"; fi
+	tell "Back, on the same volume." "$line" "$h" "$(marks counts)"
+	sleep "$hold"
+	tell "Delete it again." "\$ vmx container remove $hname" "$h"
+	g=$(gens) || die "the wall did not say how it is"
+	s0=$(date +%s%N)
+	vmx container remove "$hname" >/dev/null || die "vmx did not remove $hname"
+	if drawn "$g" 60 "$h"; then
+		tell "Back by itself, in $(since "$s0") s." "nothing pressed: whatever goes, the keeper runs again" "$h"
+	else
+		tell "Back by itself." "nothing pressed: whatever goes, the keeper runs again" "$h"
+	fi
+	sleep "$hold"
+
+	# A snapshot, and back to it.
+	tell "Snapshot it." "its disk and its volume, at one moment, in one ZFS call" "$h" "$(marks counts)"
+	s0=$(date +%s%N)
+	press snapshot "$h"
+	if said_like "$h" "snapshot at" 30; then tell "Snapshot it." "taken in $(since "$s0") s; it holds nothing until something changes" "$h" "$(marks counts)"; fi
+	sleep "$hold"
+	tell "Let it run on." "both counts climb past the snapshot" "$h" "$(marks counts)"
+	sleep "$hold"
+	tell "Restore it." "both counts go back to the snapshot" "$h" "$(marks counts)"
+	press restore "$h"
+	if said_like "$h" "back to" 30; then tell "Restore it." "$(state | jq -r --argjson h "$h" '.tiles[$h].said'): its disk and its volume, together" "$h" "$(marks counts)"; fi
+	sleep "$hold"
+
+	# More from the same golden; the keeper runs the rest.
+	tell "$(Word ${#trio[@]}) more, from the same golden image." "each a ZFS clone of it: nothing copied" "$(csv "$h" "${trio[@]}")"
+	g=$(gens) || die "the wall did not say how it is"
+	s0=$(date +%s%N)
+	press rebuild "${trio[@]}"
+	if drawn "$g" 60 "${trio[@]}"; then tell "$(Word ${#trio[@]}) more, from the same golden image." "$(word ${#trio[@]}) new microVMs drawing in $(since "$s0") s, each a machine of its own" "$(csv "$h" "${trio[@]}")"; fi
+	sleep "$hold"
+	tell "The keeper does the rest." "the page asks, the keeper runs vmx on this host: ${#rest[@]} more, at once"
+	g=$(gens) || die "the wall did not say how it is"
+	s0=$(date +%s%N)
+	press rebuild "${rest[@]}"
+	if drawn "$g" 120 "${rest[@]}"; then tell "The keeper does the rest." "${#rest[@]} more drawing in $(since "$s0") s: $n microVMs on one box"; fi
+	sleep "$hold"
+
+	# Scale: every tile cloned once, then every one of those once again,
+	# each clone a place of its own below the picture, the page framing the
+	# whole wall as it grows. What the host could not run (its memory, its
+	# network's addresses) is said by the count, not hidden.
+	for big in "Double it." "And again."; do
+		have=$(state | jq '.tiles | length') || die "the wall did not say how it is"
+		mapfile -t all < <(seq 0 $((have - 1)))
+		tell "$big" "every tile cloned once: $have more microVMs, their disks and volumes ZFS clones, nothing copied"
+		s0=$(date +%s%N)
+		press clone 1 "${all[@]}"
+		# Until every new place draws, or nothing has been in hand for three
+		# seconds (what was made is all), ten minutes at most, by the clock:
+		# a host drawing a hundred tiles makes clones a dozen a minute or
+		# so, and a count of passes ran out first (2026-11-19: 68 of 80
+		# made at 246 s, the rest still in hand, taken by the reset after).
+		end=$(($(date +%s) + 600)) idle_at=
+		while [ "$(date +%s)" -lt "$end" ]; do
+			doc=$(state) || { sleep 0.5; continue; }
+			[ "$(jq --argjson h "$have" '[.tiles[$h:][] | select(.v > 0 and .age_ms <= 2000)] | length' <<<"$doc")" -ge "$have" ] && break
+			if jq -e '[.tiles[] | select(.act or .asked)] | length == 0' <<<"$doc" >/dev/null; then
+				idle_at=${idle_at:-$(date +%s)}
+				[ $(($(date +%s) - idle_at)) -ge 3 ] && break
+			else
+				idle_at=
+			fi
+			sleep 0.5
+		done
+		took=$(since "$s0")
+		doc=$(state) || doc='{}'
+		made_n=$(jq --argjson h "$have" '[.tiles[$h:][] | select(.v > 0 and .age_ms <= 2000)] | length' <<<"$doc")
+		tell "$big" "$(jq '.live' <<<"$doc") microVMs on one box: $made_n new ones drawing $took s after the press"
+		sleep "$hold"
+	done
+	# What the host holds, as the keeper last read it, its own count of
+	# the microVMs with its numbers: thirty seconds at most for a reading
+	# of every tile drawing. 2026-11-19: the count was taken from a read
+	# of the wall that a host drawing 160 tiles answered too late, and the
+	# line said "0 disks" over the right sizes; a count not read is not
+	# said.
+	line="every image, machine, container and volume: a dataset of its own"
+	end=$(($(date +%s) + 30))
+	while [ "$(date +%s)" -lt "$end" ]; do
+		doc=$(state) || { sleep 1; continue; }
+		read -r live tiles copies disk < <(jq -r '"\(.live // 0) \(.host.tiles // 0) \(.host.copies // 0) \(.host.disk // 0)"' <<<"$doc")
+		if [ "$tiles" -gt 0 ] && [ "$copies" -gt 0 ] && [ "$disk" -gt 0 ]; then
+			line="$tiles disks: $(bytes "$copies") as full copies would take them, $(bytes "$disk") as ZFS keeps them"
+			[ "$tiles" -ge "$live" ] && break
+		fi
+		sleep 1
+	done
+	tell "Everything is a dataset." "$line"
+	sleep "$hold"
+	tell "Throw it all away." "every tile, clone and volume, and $n new machines from the image"
+	reset
+	tell "Throw it all away." "all $n drawing again $(state | jq -r '.full_s * 10 | floor / 10') s after the press"
+	sleep "$hold"
+
+	# A machine dies: back, and nothing else stops.
+	tell "Pull the plug on $(word ${#eight[@]})." "each one killed outright, as a power cut would"
+	g=$(gens) || die "the wall did not say how it is"
+	s0=$(date +%s%N)
+	press kill "${eight[@]}"
+	if drawn "$g" 90 "${eight[@]}"; then tell "Back in seconds. The rest never stopped." "all $(word ${#eight[@]}) back in $(since "$s0") s; a kernel each, so one crash cannot reach the others"; fi
+	sleep "$hold"
+
+	# Blue and green.
+	tell "What if there were a new version?" "the same program, drawing in green: the wall's other image, ${next##*/}"
+	sleep "$hold"
+	if roll update green "Roll it out."; then tell "Roll it out." "$n of $n green in $took s: every machine new, every volume carried over"; fi
+	sleep "$hold"
+	if roll rollback blue "Changed your mind? Roll back."; then tell "Changed your mind? Roll back." "$n of $n blue again in $took s: the old program, the same data"; fi
+	sleep "$hold"
+	tell "Two ways back." "Roll back changes the program and keeps the data; Restore puts the data back and keeps the program"
+	sleep "$hold"
+
+	# Destroyed and built again; clones.
+	tell "Destroy $(word ${#other8[@]}), and build them again." "a new machine and a new disk each, on the same volume"
+	g=$(gens) || die "the wall did not say how it is"
+	s0=$(date +%s%N)
+	press rebuild "${other8[@]}"
+	if drawn "$g" 90 "${other8[@]}"; then tell "Destroy $(word ${#other8[@]}), and build them again." "rebuilt in $(since "$s0") s: their disks' counts from nothing, their volumes' carried on"; fi
+	sleep "$hold"
+	tell "Clone one, $(word "$cols") times." "ZFS clones of its disk and its volume: nothing copied, no space until they write"
+	s0=$(date +%s%N)
+	press clone "$cols" "$h"
+	for _ in $(seq 1 900); do
+		state | jq -e --argjson n "$n" --argjson k "$cols" '(.tiles | length) >= ($n + $k) and all(.tiles[$n:($n + $k)][]; .v > 0 and .age_ms <= 2000)' >/dev/null && {
+			tell "Clone one, $(word "$cols") times." "$(word "$cols") clones drawing in $(since "$s0") s, each counting on from where $hname was"
+			break
+		}
+		sleep 0.2
+	done
+	sleep "$hold"
+
+	# And the rest of it.
+	tell "Kubernetes? Yes." "it runs in machines on vmx; kbx, in alpha, builds the nodes for you"
+	sleep "$hold"
+	tell "And the host rolls back too." "every upgrade is a new boot environment; going back is choosing the old one"
+	sleep "$hold"
+	curl -sf -o /dev/null --max-time 2 -X POST "$url/show/vmx" || step "  the show did not go to the vmx intro"
+	plain=true
+	tell "vmx" "virtual machines, microVMs and containers, on ZFS"
+	# The end card stays half a minute, then the pages go back to the wall.
+	sleep 30
 	exit 0
 fi
 
@@ -599,7 +938,6 @@ if [ "${1:-}" = --keep-here ]; then
 	rm -rf "$busy"
 	mkdir -p "$busy"
 
-	tile_name() { printf 'tile-%02d' "$1"; }
 	# listed NAME: this script keeps it.
 	listed() { grep -qx -- "$1" "$made" 2>/dev/null; }
 	# list_add NAME, list_drop NAME: the list written under its lock, and
@@ -712,11 +1050,6 @@ if [ "${1:-}" = --keep-here ]; then
 			done
 		) 8>"$book"
 	}
-	# since NANOSECONDS: how long ago that was, in seconds and tenths.
-	since() {
-		local ms=$((($(date +%s%N) - $1) / 1000000))
-		printf '%d.%d' $((ms / 1000)) $((ms % 1000 / 100))
-	}
 	# clock_of LABEL: a snapshot's label, made in UTC, as this host's time of day.
 	clock_of() {
 		if [[ $1 =~ ^([0-9]{4})([0-9]{2})([0-9]{2})T([0-9]{2})([0-9]{2})([0-9]{2})Z$ ]]; then
@@ -726,8 +1059,18 @@ if [ "${1:-}" = --keep-here ]; then
 		fi
 	}
 	# say I WORDS FAILED: what became of place I's verb, to the wall; FAILED
-	# is 1 when it was not done.
-	say() { curl -s -o /dev/null --max-time 2 -X POST -H "X-Failed: $3" --data-binary "$2" "$url/did/$1" || true; }
+	# is 1 when it was not done. Three tries, five seconds each: a word the
+	# wall never takes leaves the verb to be handed out again and done twice
+	# (2026-11-19, a host drawing 130 tiles answered past two seconds), so a
+	# word lost after them is said in the journal, and the keeper goes on.
+	say() {
+		local k
+		for k in 1 2 3; do
+			curl -sf -o /dev/null --max-time 5 -X POST -H "X-Failed: $3" --data-binary "$2" "$url/did/$1" && return 0
+			[ "$k" -eq 3 ] || sleep 1
+		done
+		echo "   place $1: the wall did not take the keeper's word ($2): it may ask for the verb again" >&2
+	}
 	# clone_into SOURCE NEW STOP: NEW made a clone of SOURCE in its place
 	# on the wall, and its address waited for. One the host's network has
 	# no address left for stops in half a minute (vmx-init asks for one
@@ -752,7 +1095,15 @@ if [ "${1:-}" = --keep-here ]; then
 		v=${line#*$'\t'}
 		v=${v%%,*}
 		v=${v%%:*}
-		[ -z "$v" ] || vol_set "$new" "$v"
+		# vmx's list not read (a host drawing a hundred tiles answers late):
+		# the copy's name by vmx's own rule, NEW-VOLUME, recorded all the
+		# same. Unrecorded, the copy outlived its clone, held its source's
+		# volume, and the next wall would not start (2026-11-19:
+		# tile-102-tile-22 kept tile-22's volume, "a volume named tile-22
+		# is there already"). A name recorded for no volume is passed over
+		# when the clone is taken away.
+		if [ -z "$v" ] || [ "$v" = "$line" ]; then v="$new-$(vol_of "$src")"; fi
+		vol_set "$new" "$v"
 		# The version its source runs, which vmx clones with it.
 		local img=${line%%$'\t'*}
 		if [ -n "$next" ] && [ -n "$img" ] && [ "${img##*/}" = "${next##*/}" ]; then img_set "$new" "$next"; else img_set "$new" "$agent"; fi
@@ -1044,6 +1395,12 @@ if [ "${1:-}" = --keep-here ]; then
 		(
 			if [ "$2" = start ] && try container start "$1"; then
 				echo "   $1 was stopped: started"
+			elif [ "$2" = start ] && ! has "$1" && room && run_tile "$1"; then
+				# Gone while it was started: the pass read it as stopped
+				# while vmx was removing it (vmx container remove by hand),
+				# so it is run at once, not five seconds later. 2026-11-19:
+				# "no container tile-19", back in 7.8 s where 1.3 s would do.
+				echo "   $1 was gone: a new one is running"
 			elif [ "$2" = run ] && room && run_tile "$1"; then
 				echo "   $1 was gone: a new one is running"
 			else
@@ -1252,7 +1609,7 @@ if [ "${1:-}" = --keep-here ]; then
 		if [ "$watched" = 1 ]; then sleep 0.3; else sleep 1; fi
 	done
 fi
-[ $# -eq 0 ] || die "usage: ${0##*/} [--from DIR | --keep | --keep-here | --show | --remove]"
+[ $# -eq 0 ] || die "usage: ${0##*/} [--from DIR | --keep | --keep-here | --show | --demo | --remove]"
 [[ $cols =~ ^[0-9]+$ && $rows =~ ^[0-9]+$ ]] && [ $((cols * rows)) -ge 1 ] && [ $((cols * rows)) -le 64 ] || die "COLS x ROWS is 1 to 64 tiles"
 [ -f "$made" ] && die "this script made a wall already: ${0##*/} --remove takes it away first"
 mkdir -p "$(dirname "$made")"

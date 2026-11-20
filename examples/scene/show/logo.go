@@ -5,8 +5,11 @@ import "math"
 // logo is the wordmark made of bits: the bits fall out of the dark, each
 // lit cell of VMX catches one (the bottom rows first), and the word holds
 // while light runs across it and its digits flip, zettarack.com typed out
-// under it, and at the end its bits fall away into the rain. A word with
-// a t has the drip from its foot, as the zettarack wordmark does.
+// under it, and at the end its bits fall away into the rain. It says
+// nothing more: a scroller of what vmx does, then cards of it on the
+// tiles, were each taken out (2026-11-19: "the text on the tiles with the
+// features really sucks"). A word with a t has the drip from its foot, as
+// the zettarack wordmark does.
 type logo struct {
 	cs, ds int // a cell's pixels; a digit's own cell in it
 	ox, oy int // the wordmark's top left in the picture
@@ -16,11 +19,6 @@ type logo struct {
 	seed   uint64
 	// The tagline's left, its top and its font's cell.
 	tx, ty, ts int
-	// The intro's scroller: its line, its top, its cell and its speed,
-	// which takes the whole line across the wall while the word holds.
-	intro  string
-	iy, is int
-	ispeed float64
 }
 
 type lit struct {
@@ -43,9 +41,6 @@ func newLogo(seed uint64, v *view) scene {
 	// A digit fills most of its cell's height.
 	lg := &logo{cs: cs, ds: max(1, int(float64(cs)*0.72/7+0.5)), ox: (v.pw - across*cs) / 2, oy: v.ph*42/100 - 7*cs/2, seed: seed}
 	lg.ts = max(2, cs/7)
-	lg.intro, lg.is = introLine(), max(2, v.ph/170)
-	lg.iy = v.ph*82/100 - 7*lg.is/2
-	lg.ispeed = float64(v.pw+len(lg.intro)*6*lg.is) / (IntroLen - 24)
 	lg.tx, lg.ty = (v.pw-(len(tagline)*6*lg.ts-lg.ts))/2, lg.oy+7*cs+cs*6/5
 	for li := 0; li < len(word); li++ {
 		g := glyphFor(word[li])
@@ -82,24 +77,9 @@ func newLogo(seed uint64, v *view) scene {
 func (lg *logo) frame(v *view, t float64) {
 	// The ground: a dim liquid of light, barely moving, as the desktop's
 	// own wallpaper.
-	// Copper bars roll behind the scroller while it runs, three of them.
-	bars := smooth(10, 13, t) * smooth(IntroLen-10, IntroLen-13, t)
-	barMid := float64(lg.iy) + 3.5*float64(lg.is)
 	v.each(func(x, y float64) vec3 {
 		n := fbm(x*1.3+t*0.015, y*1.3-t*0.01, 3, lg.seed)
-		c := v3(0.004, 0.009, 0.007).scale(1.2 + n)
-		if bars > 0 {
-			row := (0.5 - y) * float64(v.ph)
-			for k := 0; k < 3; k++ {
-				fk := float64(k)
-				at := barMid + float64(v.ph)*0.07*math.Sin(t*1.3+fk*2.1)
-				if d := (row - at) / (float64(v.ph) * 0.022); d > -1 && d < 1 {
-					copper := palette{gray(0.5), gray(0.5), v3(1, 1, 1), v3(0.05+fk*0.3, 0.38+fk*0.3, 0.71+fk*0.3)}.at(t * 0.05)
-					c = c.add(copper.scale(0.5 * bars * math.Cos(d*math.Pi/2)))
-				}
-			}
-		}
-		return c
+		return v3(0.004, 0.009, 0.007).scale(1.2 + n)
 	})
 	// The rain thins while the word holds, and comes back as it falls.
 	lg.rain.draw(v, t, 0.45+0.55*smooth(9, 2, t)+0.55*smooth(IntroLen-11, IntroLen-6, t))
@@ -173,11 +153,6 @@ func (lg *logo) frame(v *view, t float64) {
 		if n < len(tagline) || math.Mod(t, 1) < 0.5 {
 			v.box(lg.tx+n*6*lg.ts, lg.ty, 5*lg.ts, 7*lg.ts, live.scale(0.5*fade))
 		}
-	}
-	// The scroller: what vmx is and does, start to end, riding its wave
-	// over the copper bars while the word holds.
-	if t > 12 && t < IntroLen-10 {
-		v.scroller(lg.intro, lg.iy, lg.is, lg.ispeed, 12, t, live.scale(0.95*smooth(12, 13, t)*smooth(IntroLen-10, IntroLen-11, t)).add(gray(0.2)))
 	}
 	// The drips from the two t's: one forms under the foot, hangs, and
 	// falls to the bottom, faint.
