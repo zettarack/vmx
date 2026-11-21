@@ -200,7 +200,7 @@
 #                                       by hand, snapshot and restore, the rest run, the wall doubled and
 #                                       doubled again, a reset, a kill, the new version and back, rebuilds,
 #                                       clones; cards beside it: the image's way to a machine, a vmx job's
-#                                       steps as vmx ran them, the doublings' queue, jewm's keys; HOLD (7)
+#                                       steps as vmx ran them, the doublings' queue (their first 12 s), jewm's keys; HOLD (7)
 #                                       seconds a line; open the page first, in a window of the shape to record
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
@@ -931,14 +931,23 @@ if [ "${1:-}" = --demo ]; then
 	# each clone a place of its own below the picture, the page framing the
 	# whole wall as it grows. What the host could not run (its memory, its
 	# network's addresses) is said by the count, not hidden.
+	# The queue's card shows for a doubling's first queue_for seconds; then
+	# the same line is said without it, and the page gives the wall the whole
+	# window back. 2026-11-20, the third take: on a host where the second
+	# doubling took six minutes, the card's numbers stood beside a wall put
+	# into half the window the whole time ("the numbers were in it the whole
+	# time").
+	queue_for=12
 	for big in "Double it." "And again."; do
 		have=$(state | jq '.tiles | length') || die "the wall did not say how it is"
 		mapfile -t all < <(seq 0 $((have - 1)))
 		# The page counts the new places itself as they come: asked, in hand,
 		# done.
 		q=$(jq -cn --argjson f "$have" '{kind: "queue", title: "the new places, as vmx works", from: $f, of: (2 * $f), foot: "each one a vmx job; a job holds what it touches, so two changes to one machine never run at once"}')
-		tell "$big" "every tile cloned once: $have more microVMs, their disks and volumes ZFS clones, nothing copied" "" "" "$q"
+		said="every tile cloned once: $have more microVMs, their disks and volumes ZFS clones, nothing copied"
+		tell "$big" "$said" "" "" "$q"
 		s0=$(date +%s%N)
+		card_off=$(($(date +%s) + queue_for))
 		press clone 1 "${all[@]}"
 		# Until every new place draws, or nothing has been in hand for three
 		# seconds (what was made is all), ten minutes at most, by the clock:
@@ -947,6 +956,10 @@ if [ "${1:-}" = --demo ]; then
 		# made at 246 s, the rest still in hand, taken by the reset after).
 		end=$(($(date +%s) + 600)) idle_at=
 		while [ "$(date +%s)" -lt "$end" ]; do
+			if [ -n "$card_off" ] && [ "$(date +%s)" -ge "$card_off" ]; then
+				tell "$big" "$said"
+				card_off=
+			fi
 			doc=$(state) || { sleep 0.5; continue; }
 			[ "$(jq --argjson h "$have" '[.tiles[$h:][] | select(.v > 0 and .age_ms <= 2000)] | length' <<<"$doc")" -ge "$have" ] && break
 			if jq -e '[.tiles[] | select(.act or .asked)] | length == 0' <<<"$doc" >/dev/null; then
@@ -960,7 +973,7 @@ if [ "${1:-}" = --demo ]; then
 		took=$(since "$s0")
 		doc=$(state) || doc='{}'
 		made_n=$(jq --argjson h "$have" '[.tiles[$h:][] | select(.v > 0 and .age_ms <= 2000)] | length' <<<"$doc")
-		tell "$big" "$(jq '.live' <<<"$doc") microVMs on one box: $made_n new ones drawing $took s after the press" "" "" "$q"
+		tell "$big" "$(jq '.live' <<<"$doc") microVMs on one box: $made_n new ones drawing $took s after the press"
 		sleep "$hold"
 	done
 	# What the host holds, as the keeper last read it, its own count of

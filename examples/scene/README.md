@@ -196,10 +196,11 @@ Five cards lie beside what is framed, each read from the host as it
 stands when it is shown, and none when it cannot be read: the image's way
 to its machine (the OCI image, its digest and size; the ZFS golden the
 tile's disk is a clone of, and what it holds; the tile's own disk; its
-Firecracker microVM); the vmx job the keeper's run of the tile was, and
-later a clone's, each step as vmx ran it with how long it took; while the
-wall doubles, the new places asked, in hand and done, counted by the page
-from the wall's own state; and jewm's keys. A card is `kind` `pipe`,
+Firecracker microVM); the vmx job the tile's removal was, and later a
+clone's, each step as vmx ran it with how long it took; for the first
+twelve seconds of each doubling, the new places asked, in hand and done,
+counted by the page from the wall's own state, and then the wall alone;
+and jewm's keys. A card is `kind` `pipe`,
 `job`, `keys` or `queue`, a `title`, up to twelve `rows` (`key`,
 `value`, `note`, `via`, `tone` one of the marks' colours, `secs`) and a
 `foot`; a queue card takes `from` and `of`, the places it counts, and no
