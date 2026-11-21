@@ -240,6 +240,91 @@ type demoSay struct {
 	Focus []int             `json:"focus"`
 	Marks map[string]string `json:"marks"`
 	Plain bool              `json:"plain"`
+	Card  *demoCard         `json:"card"`
+}
+
+// demoCard is a card a demo lays beside what it frames: kind pipe, the
+// stages from an image to a running machine; job, the steps of one vmx job
+// and how long each took; keys, a console's keys; queue, the page's own
+// count of what is asked, in hand and done while the wall grows from place
+// From to place Of (its rows are the page's, so it takes none). Its words
+// are plain text, each bounded; a row's tone is one of the marks' colours.
+type demoCard struct {
+	Kind  string    `json:"kind"`
+	Title string    `json:"title"`
+	Rows  []cardRow `json:"rows"`
+	Foot  string    `json:"foot"`
+	From  int       `json:"from"`
+	Of    int       `json:"of"`
+}
+
+// cardRow is one line of a card: a stage (key, value, note, and via, the
+// words on the way to the next), a step (key, note and secs, how long it
+// took) or a key (key and note).
+type cardRow struct {
+	Key   string  `json:"key"`
+	Value string  `json:"value"`
+	Note  string  `json:"note"`
+	Via   string  `json:"via"`
+	Tone  string  `json:"tone"`
+	Secs  float64 `json:"secs"`
+}
+
+// A card's bounds, in bytes, rows and seconds.
+const (
+	cardTitle = 120
+	cardFoot  = 240
+	cardKey   = 48
+	cardValue = 120
+	cardNote  = 120
+	cardVia   = 64
+	cardRows  = 12
+	cardSecs  = 3600
+)
+
+// cardKinds are the cards a demo may lay; cardTones the colours of a row,
+// the marks' own (none: the card's text colour).
+var (
+	cardKinds = []string{"pipe", "job", "keys", "queue"}
+	cardTones = []string{"", "image", "disk", "volume", "vm", "pool", "record"}
+)
+
+// cardWrong says what is wrong with c, or "" when nothing is.
+func cardWrong(c *demoCard) string {
+	if !slices.Contains(cardKinds, c.Kind) {
+		return "a card's kind is " + strings.Join(cardKinds, ", ") + ": not " + strconv.Quote(c.Kind)
+	}
+	if !plain(c.Title, cardTitle) || !plain(c.Foot, cardFoot) {
+		return "a card's title is one line of " + strconv.Itoa(cardTitle) + " bytes at most and its foot of " + strconv.Itoa(cardFoot)
+	}
+	if c.Kind == "queue" {
+		if len(c.Rows) > 0 {
+			return "a queue card counts from the page's own state: it takes from and of, and no rows"
+		}
+		if c.From < 0 || c.Of <= c.From || c.Of > maxTiles {
+			return "a queue card counts the places from to of: 0 <= from < of <= " + strconv.Itoa(maxTiles)
+		}
+		return ""
+	}
+	if c.From != 0 || c.Of != 0 {
+		return "only a queue card takes from and of"
+	}
+	if len(c.Rows) == 0 || len(c.Rows) > cardRows {
+		return "a card has 1 to " + strconv.Itoa(cardRows) + " rows"
+	}
+	for k, r := range c.Rows {
+		row := "row " + strconv.Itoa(k+1) + ": "
+		if r.Key == "" || !plain(r.Key, cardKey) || !plain(r.Value, cardValue) || !plain(r.Note, cardNote) || !plain(r.Via, cardVia) {
+			return row + "a key of " + strconv.Itoa(cardKey) + " bytes at most, never empty, a value and a note of " + strconv.Itoa(cardValue) + ", via of " + strconv.Itoa(cardVia) + ", each one line"
+		}
+		if !slices.Contains(cardTones, r.Tone) {
+			return row + "the tone is none or one of " + strings.Join(cardTones[1:], ", ") + ": not " + strconv.Quote(r.Tone)
+		}
+		if r.Secs < 0 || r.Secs > cardSecs {
+			return row + "secs is 0 to " + strconv.Itoa(cardSecs)
+		}
+	}
+	return ""
 }
 
 // A demo's bounds: its two lines and a mark's words, in bytes; the most
@@ -1086,8 +1171,8 @@ const demoBody = 16 << 10
 // body is demoSay as JSON, in UTF-8. A body over demoBody or not UTF-8,
 // lines or a mark's words that are not plain or are too long, a place
 // outside 0 to maxTiles-1 or named twice, more than demoFocus places, a
-// mark not of demoMarks, or marks with other than one place framed are
-// refused, and the demo stays as it was. (Bytes that are not UTF-8 are
+// mark not of demoMarks, marks with other than one place framed, or a card
+// cardWrong finds wrong are refused, and the demo stays as it was. (Bytes that are not UTF-8 are
 // refused before the JSON is read, which would put U+FFFD in their place.)
 func (s *wall) demoSet(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, demoBody+1))
@@ -1131,6 +1216,12 @@ func (s *wall) demoSet(w http.ResponseWriter, r *http.Request) {
 	if len(d.Marks) > 0 && len(d.Focus) != 1 {
 		http.Error(w, "marks are laid over one place: focus names exactly one", http.StatusBadRequest)
 		return
+	}
+	if d.Card != nil {
+		if why := cardWrong(d.Card); why != "" {
+			http.Error(w, why, http.StatusBadRequest)
+			return
+		}
 	}
 	s.mu.Lock()
 	s.demo, s.demoAt = &d, time.Now()
@@ -1325,6 +1416,37 @@ body.demo #say{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:3;min
 #mk-volume i{color:#ff7cc8}
 #mk-counts{border-top:2px solid #fff}
 #mk-counts i{left:calc(100% + 2px);top:-7px;background:#fff}
+/* A demo's card: beside what it frames in a wide window, under it in a
+   square or tall one, the camera leaving its room; sized by the window's
+   shorter side, as the lines are. */
+#card{display:none;position:fixed;z-index:3;box-sizing:border-box;overflow:hidden;background:#06050b;border:1px solid #ffffff1a;border-radius:.8vmin;padding:2.2vmin 2.6vmin;font:500 1.65vmin/1.45 ui-monospace,"DejaVu Sans Mono",monospace;color:#c9cde0;box-shadow:0 2vmin 7vmin #000000b3;opacity:0;transition:opacity .5s}
+body.demo #card.on{display:block}
+#card.shown{opacity:1}
+#card.wide{right:2.5vw;width:min(46vw,92vmin)}
+#card:not(.wide){left:3vw;right:3vw}
+#card .ck{font:600 1.3vmin/1.3 ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;color:#80859e}
+#card .cv{color:#fff;font-weight:600;font-size:2vmin;margin:.35vmin 0 .25vmin;overflow-wrap:anywhere}
+#card .cn{color:#9095ad;font-size:1.5vmin}
+#card .cs{border-left:.3vmin solid var(--c,#e2e4ee);padding:.6vmin 0 .6vmin 1.6vmin}
+#card .ca{color:#5d6176;font-size:1.4vmin;padding:.7vmin 0 .7vmin 1.3vmin}
+#card .ca b{color:var(--c,#e2e4ee);margin-right:.9vmin}
+#card .cj{display:grid;grid-template-columns:auto auto 1fr auto 12vmin;column-gap:1.3vmin;row-gap:.8vmin;align-items:center;margin-top:1.5vmin}
+#card .cj .ci{color:#5d6176}
+#card .cj .cm{color:#e8eaf4}
+#card .cj .cx{color:#fff;text-align:right;white-space:nowrap}
+#card .cj i{display:block;height:.65vmin;border-radius:.4vmin;background:var(--c,#9aa0b8)}
+#card .cf{margin-top:1.6vmin;padding-top:1.3vmin;border-top:1px solid #ffffff14;color:#9095ad;font-size:1.5vmin}
+#card .cq{display:grid;grid-template-columns:auto 1fr;column-gap:1.3vmin;row-gap:.3vmin;align-items:baseline;margin-top:1.4vmin}
+#card .cq b{font-size:3.7vmin;color:#fff;text-align:right}
+#card .cq b.h{color:#3cd2ff}
+#card .cq b.d{color:#3cffb4}
+#card .cc{display:grid;grid-template-columns:repeat(8,1fr);gap:.65vmin;margin:2vmin 0 1.8vmin}
+#card:not(.wide) .cc{grid-template-columns:repeat(16,1fr)}
+#card .cc i{height:1.85vmin;border-radius:.3vmin;background:#15161f;border:1px solid #262838}
+#card .cc i.d{background:#3cffb4;border-color:#3cffb4}
+#card .cc i.h{background:#3cd2ff1f;border-color:#3cd2ff;box-shadow:0 0 .8vmin #3cd2ff80}
+#card .ky{display:grid;grid-template-columns:auto 1fr;gap:1.2vmin 1.9vmin;margin-top:1.6vmin}
+#card .ky b{color:#3cd2ff;white-space:nowrap}
 </style></head><body>
 <h1>FIRECRACKER WALL</h1>
 <div id="bar"><span id="live"></span><span id="fps"></span><span id="clock"></span><span id="new"></span><span id="looks"></span></div>
@@ -1341,6 +1463,7 @@ body.demo #say{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:3;min
 <div id="hint"></div>
 </div>
 <div id="say" aria-live="polite"><b id="sayb"></b><span id="says"></span></div>
+<div id="card" aria-live="polite"></div>
 <div id="info" hidden>
 <h2>What you are looking at</h2>
 <p>One picture, hours of scenes, drawn by <b>NTILES</b> copies of one small program. Each copy is a container of its own, and each container is a Firecracker microVM with its own Linux kernel. One more container, this wall, puts the pieces together and serves this page.</p>
@@ -1602,7 +1725,7 @@ let demo=null,demoFade=0;
 const sayb=$('sayb'),says=$('says'),marks={};
 for(const k of ['container','vm','golden','volume','counts']){const m=document.createElement('div');m.className='mk';m.id='mk-'+k;m.append(document.createElement('i'));wall.append(m);marks[k]=m;}
 function demoTick(s){const d=s.demo||null,was=demo;demo=d;
-if(!d){if(was){document.body.classList.remove('demo','near','plain');wall.style.transform='';for(const m of Object.values(marks))m.classList.remove('on');tiles.forEach(o=>o.d.classList.remove('focus'));sayb.textContent=says.textContent='';fit();}return;}
+if(!d){if(was){document.body.classList.remove('demo','near','plain');wall.style.transform='';for(const m of Object.values(marks))m.classList.remove('on');tiles.forEach(o=>o.d.classList.remove('focus'));sayb.textContent=says.textContent='';cardTick(s,null);fit();}return;}
 if(!was){document.body.classList.add('demo');[...sel].forEach(i=>choose(i,false));tools();cfg(false);showInfo(false);}
 if(!was||was.big!==d.big){sayb.classList.add('fade');says.classList.add('fade');clearTimeout(demoFade);
 demoFade=setTimeout(()=>{if(!demo)return;sayb.textContent=demo.big;says.textContent=demo.small;sayb.classList.remove('fade');says.classList.remove('fade');},was?250:0);}
@@ -1611,7 +1734,38 @@ const f=(d.focus||[]).filter(i=>i<tiles.length),one=f.length===1;
 document.body.classList.toggle('plain',d.plain===true);
 tiles.forEach((o,i)=>o.d.classList.toggle('focus',f.includes(i)));
 for(const [k,m] of Object.entries(marks)){const on=one&&!!d.marks&&typeof d.marks[k]==='string';m.classList.toggle('on',on);if(on)m.firstChild.textContent=d.marks[k];}
+cardTick(s,d);
 camera();}
+// The demo's card, built anew when it changes, as text: pipe, the stages
+// from an image to a machine; job, a vmx job's steps, each with its time
+// and a bar of it; keys, a console's keys; queue, counted here from the
+// wall's own state on every tick (asked: tiles with a verb waiting; in
+// hand: tiles with one being done; done: the places from to of drawing).
+const cardEl=$('card'),tones={image:'#e2e4ee',disk:'#ffe53c',volume:'#ff3cac',vm:'#3cd2ff',pool:'#3cffb4',record:'#9aa0b8'};
+let cardWas='';
+function ce(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;}
+function cardTick(s,d){const c=d&&d.card;
+if(!c){if(cardWas){cardWas='';cardEl.classList.remove('shown','on');cardEl.replaceChildren();}return;}
+const key=JSON.stringify(c);
+if(key!==cardWas){cardWas=key;const parts=[],rows=c.rows||[];
+if(c.title)parts.push(ce('div','ck',c.title));
+if(c.kind==='pipe')rows.forEach((r,k)=>{const st=ce('div','cs');st.style.setProperty('--c',tones[r.tone]||tones.image);st.append(ce('div','ck',r.key));if(r.value)st.append(ce('div','cv',r.value));if(r.note)st.append(ce('div','cn',r.note));parts.push(st);
+if(r.via&&k<rows.length-1){const a=ce('div','ca');a.style.setProperty('--c',tones[rows[k+1].tone]||tones.image);a.append(ce('b','','↓'),document.createTextNode(r.via));parts.push(a);}});
+else if(c.kind==='job'){const g=ce('div','cj'),most=Math.max(0.001,...rows.map(r=>r.secs||0));rows.forEach((r,k)=>{const bar=ce('span'),i=ce('i');i.style.width=Math.max(3,Math.round((r.secs||0)/most*100))+'%';bar.style.setProperty('--c',tones[r.tone]||tones.record);bar.append(i);g.append(ce('span','ci',(k+1)+'/'+rows.length),ce('span','cm',r.key),ce('span','cn',r.note||''),ce('span','cx',(r.secs||0).toFixed(3)+' s'),bar);});parts.push(g);}
+else if(c.kind==='keys'){const g=ce('div','ky');rows.forEach(r=>g.append(ce('b','',r.key),ce('span','',r.note||'')));parts.push(g);}
+else if(c.kind==='queue'){const q=ce('div','cq');q.append(ce('b','a'),ce('span','ck','asked'),ce('b','h'),ce('span','ck','in hand'),ce('b','d'),ce('span','ck','done of '+(c.of-c.from)));const cc=ce('div','cc');for(let k=c.from;k<c.of;k++)cc.append(ce('i'));parts.push(q,cc);}
+if(c.foot)parts.push(ce('div','cf',c.foot));
+cardEl.replaceChildren(...parts);cardEl.classList.add('on');placeCard();requestAnimationFrame(()=>cardEl.classList.add('shown'));}
+if(c.kind==='queue'){const t=s.tiles||[];let asked=0,hand=0,done=0;
+t.forEach((o,i)=>{if(o.act)hand++;else if(o.asked)asked++;if(i>=c.from&&i<c.of&&o.v>0&&o.age_ms<=2000)done++;});
+const b=cardEl.querySelectorAll('.cq b');if(b.length===3){b[0].textContent=asked;b[1].textContent=hand;b[2].textContent=done;}
+cardEl.querySelectorAll('.cc i').forEach((e,k)=>{e.className=k<done?'d':k<done+hand?'h':'';});}}
+// placeCard: beside what is framed in a wide window, in the middle of the
+// room between the lines above the picture and the demo's words; in a
+// square or a tall one, the width of the window, just above the words.
+function placeCard(){if(!cardEl.classList.contains('on'))return;const wide=innerWidth>=innerHeight*1.25;cardEl.classList.toggle('wide',wide);
+const top=$('host').getBoundingClientRect().bottom+innerHeight*.012,bottom=innerHeight-$('say').offsetHeight-innerHeight*.012;cardEl.style.maxHeight=(bottom-top)+'px';
+if(wide){cardEl.style.bottom='';cardEl.style.top=Math.max(top,(top+bottom)/2-cardEl.offsetHeight/2)+'px';}else{cardEl.style.top='';cardEl.style.bottom=(innerHeight-bottom)+'px';}}
 // camera: the wall moved and sized so the places the demo names, and the
 // marks over one, fill the room between the lines above the picture and
 // the demo's words below it; none named, the whole wall. A window sized
@@ -1631,9 +1785,11 @@ if(on('golden')){y2=Math.max(y2,y+h+28);x2=Math.max(x2,x-6+marks.golden.offsetWi
 if(on('volume')){y2=Math.max(y2,y+h+48);x2=Math.max(x2,x-6+marks.volume.offsetWidth);}
 if(on('counts'))x2=Math.max(x2,x+w+19+marks.counts.firstChild.offsetWidth);}
 x1-=10;y1-=10;x2+=10;y2+=10;}
-const top=$('host').getBoundingClientRect().bottom+innerHeight*.01,bottom=innerHeight-$('say').offsetHeight-innerHeight*.01;
-const k=Math.min(6,innerWidth*.96/(x2-x1),(bottom-top)*.96/(y2-y1));
-wall.style.transform='translate('+(innerWidth/2-k*(x1+x2)/2).toFixed(1)+'px,'+((top+bottom)/2-k*(y1+y2)/2).toFixed(1)+'px) scale('+k.toFixed(4)+')';
+const top=$('host').getBoundingClientRect().bottom+innerHeight*.01;let bottom=innerHeight-$('say').offsetHeight-innerHeight*.01,right=innerWidth;
+// A card shown takes its room: what is framed goes beside it, or above it.
+if(cardEl.classList.contains('on')){placeCard();const r=cardEl.getBoundingClientRect();if(cardEl.classList.contains('wide'))right=r.left-innerWidth*.015;else bottom=r.top-innerHeight*.012;}
+const k=Math.min(6,right*.96/(x2-x1),(bottom-top)*.96/(y2-y1));
+wall.style.transform='translate('+(right/2-k*(x1+x2)/2).toFixed(1)+'px,'+((top+bottom)/2-k*(y1+y2)/2).toFixed(1)+'px) scale('+k.toFixed(4)+')';
 document.body.classList.toggle('near',k>=2);}
 fit();
 tick();

@@ -176,8 +176,8 @@ and started with `systemctl`, a tile removed with `vmx container remove`
 by hand, the rest pressed as the page presses its buttons. What each step
 shows is said under the picture on every page open on the wall, with the
 numbers that run measured (`POST /demo`: two lines, the places to frame,
-the marks to lay over one; `DELETE /demo` ends it, and a demo that says
-nothing for fifteen minutes is over by itself). The page frames the tiles
+the marks to lay over one, and a card; `DELETE /demo` ends it, and a demo
+that says nothing for fifteen minutes is over by itself). The page frames the tiles
 the demo is about, keeps its own numbers and the tiles' names and counts
 in view, puts its buttons away, and takes no key or click while it lasts.
 It runs: the wall on the vmx intro under its title; down to one tile, with
@@ -190,7 +190,21 @@ the keeper; every tile cloned once and once again (40, 80, 160), with
 what their disks take as full copies and as ZFS keeps them; a reset; eight
 killed and back; the new version rolled out and rolled back; eight
 rebuilt; one cloned eight times; and the wordmark again. `HOLD` (7) is the
-seconds each line stays. Open the page first, full screen or in a window
+seconds each line stays.
+
+Five cards lie beside what is framed, each read from the host as it
+stands when it is shown, and none when it cannot be read: the image's way
+to its machine (the OCI image, its digest and size; the ZFS golden the
+tile's disk is a clone of, and what it holds; the tile's own disk; its
+Firecracker microVM); the vmx job the keeper's run of the tile was, and
+later a clone's, each step as vmx ran it with how long it took; while the
+wall doubles, the new places asked, in hand and done, counted by the page
+from the wall's own state; and jewm's keys. A card is `kind` `pipe`,
+`job`, `keys` or `queue`, a `title`, up to twelve `rows` (`key`,
+`value`, `note`, `via`, `tone` one of the marks' colours, `secs`) and a
+`foot`; a queue card takes `from` and `of`, the places it counts, and no
+rows. Each word is plain text and bounded, and a card that is not right is
+refused with the rest of the say. Open the page first, full screen or in a window
 of the shape to record (1:1, 4:5, 16:9): it lays itself out for it.
 
 The page cannot do any of that by itself, and that is the point: the wall
@@ -241,7 +255,7 @@ once), and 5.6 GiB of memory.
 ## Run it
 
 The three images come with the examples: `images/` holds their
-archives, `scene-agent:21`, `scene-agent:21-green` and `scene-wall:37`, the
+archives, `scene-agent:21`, `scene-agent:21-green` and `scene-wall:38`, the
 very ones whose digests the script pins. On the vmx host, as root, one
 command, with nothing fetched: the images imported from those archives
 and checked, the wall, its tiles, and the keeper. A wall that is there
@@ -264,10 +278,10 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-agent ./agent
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o scene-wall ./wall
 podman build -f Containerfile.agent -t scene-agent:21 .
 podman build -f Containerfile.green -t scene-agent:21-green .
-podman build -f Containerfile.wall -t scene-wall:37 .
+podman build -f Containerfile.wall -t scene-wall:38 .
 podman save --format oci-archive -o scene-agent.tar scene-agent:21
 podman save --format oci-archive -o scene-agent-green.tar scene-agent:21-green
-podman save --format oci-archive -o scene-wall.tar scene-wall:37
+podman save --format oci-archive -o scene-wall.tar scene-wall:38
 for f in scene-agent scene-agent-green scene-wall; do echo "$f $(tar -xOf $f.tar index.json | jq -r '.manifests[0].digest')"; done
 scp scene-agent.tar scene-agent-green.tar scene-wall.tar root@vmx-host:/home/
 ```
@@ -281,7 +295,7 @@ above.
 ```sh
 AGENT_ARCHIVE=/home/scene-agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:21 \
 NEXT_ARCHIVE=/home/scene-agent-green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:21-green \
-WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:37 \
+WALL_ARCHIVE=/home/scene-wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:38 \
 ./05-demoscene-wall.sh
 ```
 

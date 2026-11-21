@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -1643,6 +1644,105 @@ func TestADemoSayThatIsWrongIsRefusedAndTheOneBeforeStays(t *testing.T) {
 	}
 }
 
+// A demo's card is kept with its say and served to every page, each kind
+// as it was given; a say without one takes the card away.
+func TestADemoCardIsKeptWithItsSay(t *testing.T) {
+	s := newWall(8, 5, 16, 16, time.Now())
+	for _, body := range []string{
+		`{"big":"One container.","focus":[19],"card":{"kind":"pipe","rows":[{"key":"OCI image","value":"scene-agent:21","note":"9.4 MiB","via":"imported once","tone":"image"},{"key":"ZFS golden","value":"rpool/vms/images/oci-f0a2@golden","tone":"disk"}]}}`,
+		`{"big":"Every change is a job.","card":{"kind":"job","title":"job 28fa4b1d · machine.container run · tile-19","rows":[{"key":"microvm.run","note":"Firecracker starts it","tone":"vm","secs":0.287},{"key":"microvm.intent","secs":0.007}],"foot":"done in 0.29 s"}}`,
+		`{"big":"jewm.","card":{"kind":"keys","rows":[{"key":"Super+Tab","note":"the wall of every machine"}]}}`,
+		`{"big":"Double it.","card":{"kind":"queue","title":"the new places","from":40,"of":80,"foot":"each one a vmx job"}}`,
+	} {
+		if c := ask(t, s, "POST", "/demo", body); c != http.StatusNoContent {
+			t.Fatalf("a say with a card: %d: %s", c, body)
+		}
+		var want demoSay
+		if err := json.Unmarshal([]byte(body), &want); err != nil {
+			t.Fatal(err)
+		}
+		d := demoOf(t, s)
+		if d == nil || d.Card == nil || !reflect.DeepEqual(*d.Card, *want.Card) {
+			t.Fatalf("the state's card is %+v, want %+v", d, want.Card)
+		}
+	}
+	if c := ask(t, s, "POST", "/demo", `{"big":"No card."}`); c != http.StatusNoContent {
+		t.Fatalf("a say without a card: %d", c)
+	}
+	if d := demoOf(t, s); d == nil || d.Card != nil {
+		t.Fatalf("a say without a card left %+v", d)
+	}
+}
+
+// A card is checked with the rest of the say: each wrong one is refused
+// and the say before it stays; at its bounds, each is taken.
+func TestADemoCardThatIsWrongIsRefused(t *testing.T) {
+	s := newWall(8, 5, 16, 16, time.Now())
+	if c := ask(t, s, "POST", "/demo", `{"big":"Before."}`); c != http.StatusNoContent {
+		t.Fatalf("a good say: %d", c)
+	}
+	words := func(n int) string { return strings.Repeat("a", n) }
+	rows := func(n int) string {
+		r := make([]string, n)
+		for i := range r {
+			r[i] = `{"key":"k"}`
+		}
+		return "[" + strings.Join(r, ",") + "]"
+	}
+	card := func(c string) string { return `{"big":"x","card":` + c + `}` }
+	for name, body := range map[string]string{
+		"a kind it does not know":      card(`{"kind":"slides","rows":[{"key":"k"}]}`),
+		"no kind":                      card(`{"rows":[{"key":"k"}]}`),
+		"a field it does not know":     card(`{"kind":"job","rows":[{"key":"k"}],"colour":"red"}`),
+		"a row's field it does not":    card(`{"kind":"job","rows":[{"key":"k","bold":true}]}`),
+		"a title too long":             card(`{"kind":"job","title":"` + words(cardTitle+1) + `","rows":[{"key":"k"}]}`),
+		"a title of two lines":         card(`{"kind":"job","title":"a\nb","rows":[{"key":"k"}]}`),
+		"a foot too long":              card(`{"kind":"job","foot":"` + words(cardFoot+1) + `","rows":[{"key":"k"}]}`),
+		"no rows":                      card(`{"kind":"pipe"}`),
+		"rows, none":                   card(`{"kind":"keys","rows":[]}`),
+		"too many rows":                card(`{"kind":"job","rows":` + rows(cardRows+1) + `}`),
+		"a row with no key":            card(`{"kind":"job","rows":[{"note":"n"}]}`),
+		"a key too long":               card(`{"kind":"keys","rows":[{"key":"` + words(cardKey+1) + `"}]}`),
+		"a value too long":             card(`{"kind":"pipe","rows":[{"key":"k","value":"` + words(cardValue+1) + `"}]}`),
+		"a note too long":              card(`{"kind":"job","rows":[{"key":"k","note":"` + words(cardNote+1) + `"}]}`),
+		"a via too long":               card(`{"kind":"pipe","rows":[{"key":"k","via":"` + words(cardVia+1) + `"}]}`),
+		"a note with a tab":            card(`{"kind":"job","rows":[{"key":"k","note":"a\tb"}]}`),
+		"a tone it does not know":      card(`{"kind":"job","rows":[{"key":"k","tone":"red"}]}`),
+		"secs below 0":                 card(`{"kind":"job","rows":[{"key":"k","secs":-0.001}]}`),
+		"secs past an hour":            card(`{"kind":"job","rows":[{"key":"k","secs":3600.5}]}`),
+		"secs too big for a float":     card(`{"kind":"job","rows":[{"key":"k","secs":1e999}]}`),
+		"secs that are a word":         card(`{"kind":"job","rows":[{"key":"k","secs":"0.2"}]}`),
+		"a queue with rows":            card(`{"kind":"queue","from":0,"of":40,"rows":[{"key":"k"}]}`),
+		"a queue from below 0":         card(`{"kind":"queue","from":-1,"of":40}`),
+		"a queue of no places":         card(`{"kind":"queue","from":40,"of":40}`),
+		"a queue backwards":            card(`{"kind":"queue","from":80,"of":40}`),
+		"a queue past the last place":  card(`{"kind":"queue","from":0,"of":` + itoa(maxTiles+1) + `}`),
+		"from and of on another card":  card(`{"kind":"job","from":1,"of":2,"rows":[{"key":"k"}]}`),
+		"of alone on another card":     card(`{"kind":"keys","of":2,"rows":[{"key":"k"}]}`),
+		"a card that is not an object": card(`"job"`),
+	} {
+		if c := ask(t, s, "POST", "/demo", body); c != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", name, c)
+		}
+		if d := demoOf(t, s); d == nil || d.Big != "Before." || d.Card != nil {
+			t.Fatalf("%s: the say before it did not stay: %+v", name, d)
+		}
+	}
+	for name, body := range map[string]string{
+		"the most rows":           card(`{"kind":"job","rows":` + rows(cardRows) + `}`),
+		"each word at its most":   card(`{"kind":"pipe","title":"` + words(cardTitle) + `","foot":"` + words(cardFoot) + `","rows":[{"key":"` + words(cardKey) + `","value":"` + words(cardValue) + `","note":"` + words(cardNote) + `","via":"` + words(cardVia) + `","tone":"volume"}]}`),
+		"secs of an hour":         card(`{"kind":"job","rows":[{"key":"k","secs":3600}]}`),
+		"every tone":              card(`{"kind":"job","rows":[{"key":"a","tone":"image"},{"key":"b","tone":"disk"},{"key":"c","tone":"volume"},{"key":"d","tone":"vm"},{"key":"e","tone":"pool"},{"key":"f","tone":"record"},{"key":"g"}]}`),
+		"a queue of every place":  card(`{"kind":"queue","from":0,"of":` + itoa(maxTiles) + `}`),
+		"a queue of the last one": card(`{"kind":"queue","from":` + itoa(maxTiles-1) + `,"of":` + itoa(maxTiles) + `}`),
+		"words not ASCII":         card(`{"kind":"keys","title":"容器 · Behälter","rows":[{"key":"Super+Tab","note":"die Wand · 墙"}]}`),
+	} {
+		if c := ask(t, s, "POST", "/demo", body); c != http.StatusNoContent {
+			t.Errorf("%s: %d, want 204", name, c)
+		}
+	}
+}
+
 // A demo that says nothing for demoFor is over: a script killed outright
 // leaves no page in it for good.
 func TestADemoThatSaysNothingForAWhileIsOver(t *testing.T) {
@@ -1682,6 +1782,11 @@ func TestThePageFollowsADemo(t *testing.T) {
 		"body.demo.plain .t span,body.demo.plain .t b{opacity:0}", "document.body.classList.toggle('plain',d.plain===true);", "classList.remove('demo','near','plain')",
 		"sh.text===false&&!demo", "&&!sel.size&&!demo", "e.button!==0||demo)return;", "if(demo)return;\nif(e.key==='Escape')",
 		"<code>05-demoscene-wall.sh --demo</code>",
+		// The card: drawn anew when it changes, the queue's counts on every
+		// tick from the wall's own state, and room left for it.
+		`<div id="card" aria-live="polite"></div>`, "cardTick(s,d);\ncamera();}", "function cardTick(s,d){", "function placeCard(){",
+		"if(cardEl.classList.contains('on')){placeCard();", "cardTick(s,null);fit();", "body.demo #card.on{display:block}",
+		"if(o.act)hand++;else if(o.asked)asked++;if(i>=c.from&&i<c.of&&o.v>0&&o.age_ms<=2000)done++;",
 	} {
 		if !strings.Contains(page, said) {
 			t.Errorf("the page does not have %q", said)
@@ -1689,6 +1794,18 @@ func TestThePageFollowsADemo(t *testing.T) {
 	}
 	if regexp.MustCompile(`innerHTML\s*=\s*(d|demo|was)\.`).MatchString(page) {
 		t.Error("the page puts a demo's words in as markup")
+	}
+	// The card's words go in as text: its code sets no markup at all.
+	_, cardCode, _ := strings.Cut(page, "function cardTick(s,d){")
+	cardCode, _, _ = strings.Cut(cardCode, "function camera(){")
+	if cardCode == "" || strings.Contains(cardCode, "innerHTML") || strings.Contains(cardCode, "insertAdjacentHTML") {
+		t.Error("the page's card puts words in as markup, or the card's code is not where it was looked for")
+	}
+	// Each tone a card may give has its colour on the page.
+	for _, tone := range cardTones[1:] {
+		if !strings.Contains(page, tone+":'#") {
+			t.Errorf("the page has no colour for the tone %s", tone)
+		}
 	}
 	for _, k := range demoMarks {
 		if !strings.Contains(page, "#mk-"+k) {

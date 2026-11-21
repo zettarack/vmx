@@ -199,13 +199,14 @@
 #                                       numbers it measured; the keeper stopped and started, a tile removed
 #                                       by hand, snapshot and restore, the rest run, the wall doubled and
 #                                       doubled again, a reset, a kill, the new version and back, rebuilds,
-#                                       clones; HOLD (7) seconds a line; open the page first, in a window of
-#                                       the shape to record
+#                                       clones; cards beside it: the image's way to a machine, a vmx job's
+#                                       steps as vmx ran them, the doublings' queue, jewm's keys; HOLD (7)
+#                                       seconds a line; open the page first, in a window of the shape to record
 #   ./05-demoscene-wall.sh --remove     stop the keeper; remove every tile, clone, volume and the wall this script made
 #
 # The images come with the script: scene/images holds the archives of
 # the three, scene-agent:21, its next version scene-agent:21-green and
-# scene-wall:37, which it takes with no argument and checks against the
+# scene-wall:38, which it takes with no argument and checks against the
 # digests below, so a clone of the examples, or a host whose installer put
 # them on it, runs the wall with no registry and no network.
 # scene/README.md builds them again from their sources. --from DIR takes
@@ -221,10 +222,10 @@
 #   ./05-demoscene-wall.sh --from /home        the same, from /home/scene-agent.tar, scene-agent-green.tar and scene-wall.tar
 #   ./05-demoscene-wall.sh --remove && ./05-demoscene-wall.sh --from /home     the wall that is there, made again
 #   COLS=4 ROWS=2 PORT=9090 ./05-demoscene-wall.sh --from /home     8 tiles, the page on port 9090
-#   AGENT_IMAGE=ghcr.io/you/scene-agent:21 NEXT_IMAGE=ghcr.io/you/scene-agent:21-green WALL_IMAGE=ghcr.io/you/scene-wall:37 ./05-demoscene-wall.sh
+#   AGENT_IMAGE=ghcr.io/you/scene-agent:21 NEXT_IMAGE=ghcr.io/you/scene-agent:21-green WALL_IMAGE=ghcr.io/you/scene-wall:38 ./05-demoscene-wall.sh
 #   AGENT_ARCHIVE=/srv/agent.tar AGENT_DIGEST=sha256:... AGENT_IMAGE=scene-agent:21 \
 #   NEXT_ARCHIVE=/srv/green.tar NEXT_DIGEST=sha256:... NEXT_IMAGE=scene-agent:21-green \
-#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:37 ./05-demoscene-wall.sh
+#   WALL_ARCHIVE=/srv/wall.tar WALL_DIGEST=sha256:... WALL_IMAGE=scene-wall:38 ./05-demoscene-wall.sh
 #   ./05-demoscene-wall.sh --keep              the keeper again, after systemctl stop demoscene-keeper
 #   ./05-demoscene-wall.sh --remove            the keeper stopped, the wall, its tiles, clones and volumes removed
 # Run it on the vmx host, as root.
@@ -271,11 +272,11 @@ protocol=2
 # The keeper's service: one on a host, as the wall's port is.
 keeper_unit=demoscene-keeper
 # The images' digests, the tiles' scene-agent:21 and its second version
-# scene-agent:21-green, and the wall's scene-wall:37,
+# scene-agent:21-green, and the wall's scene-wall:38,
 # as scene/README.md builds them: what an archive of each is checked
 # against (--from).
 agent_digest=sha256:f0a237a3c51c517255f9355801fc55d453a794dfbf52c0835841e5ccc4c43a17
-wall_digest=sha256:0d8805fd971b6dd50d9e08a5ccf3d48ef0e6262444d0e3ad03f5498c7406cbe4
+wall_digest=sha256:f6381a3689e0822ecf91a05340e87410e72ac9d9027958249dc0c8647355e887
 next_digest=sha256:b8f4bff38a102aeedd2ec6af6a2aea529dadfd80f89f1b60789cba59aeffd85f
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }
@@ -306,11 +307,11 @@ if [ "${1:-}" = --from ]; then
 	fi
 	AGENT_ARCHIVE=${AGENT_ARCHIVE:-$from/scene-agent.tar} AGENT_DIGEST=${AGENT_DIGEST:-$agent_digest} AGENT_IMAGE=${AGENT_IMAGE:-scene-agent:21}
 	NEXT_ARCHIVE=${NEXT_ARCHIVE:-$from/scene-agent-green.tar} NEXT_DIGEST=${NEXT_DIGEST:-$next_digest} NEXT_IMAGE=${NEXT_IMAGE:-scene-agent:21-green}
-	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:37}
+	WALL_ARCHIVE=${WALL_ARCHIVE:-$from/scene-wall.tar} WALL_DIGEST=${WALL_DIGEST:-$wall_digest} WALL_IMAGE=${WALL_IMAGE:-scene-wall:38}
 fi
 agent=${AGENT_IMAGE:-ghcr.io/zettarack/scene-agent:21}
 next=${NEXT_IMAGE:-ghcr.io/zettarack/scene-agent:21-green}
-wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:37}
+wall=${WALL_IMAGE:-ghcr.io/zettarack/scene-wall:38}
 command -v vmx >/dev/null || die "there is no vmx command here: run this on the vmx host"
 command -v jq >/dev/null || die "this needs jq"
 command -v flock >/dev/null || die "this needs flock (util-linux)"
@@ -651,6 +652,16 @@ if [ "${1:-}" = --demo ]; then
 	# after the wall had been made for it (2026-11-19, HOLD=1).
 	hold=${HOLD:-7}
 	[[ $hold =~ ^[0-9]+$ ]] && [ "$hold" -ge 2 ] && [ "$hold" -le 60 ] || die "HOLD is the seconds a line stays, 2 to 60: not $hold"
+	# One demo at a time: a second, started while one ran, pressed buttons
+	# and said its lines beside it, and every page showed both (2026-11-20:
+	# a take was recorded over a run already going). The lock is this run's
+	# until it ends, however it ends; the file says whose it is. Opened to
+	# append, so that a second run does not empty it before it is refused.
+	mkdir -p "$(dirname "$made")"
+	demo_lock=$here/.made/05-demoscene-wall.demo
+	exec 7>>"$demo_lock"
+	flock -n 7 || die "a demo runs on this wall already ($(cat "$demo_lock" 2>/dev/null || echo "its run unknown")): wait for it, or Ctrl+C it"
+	echo "pid $$, started $(date +%T)" >"$demo_lock"
 	# No wall here yet: made first, as this script with no argument makes
 	# it (the wall and its page alone, no demo, is that default).
 	if [ ! -f "$made" ] || [ ! -f "$kept" ]; then
@@ -694,18 +705,77 @@ if [ "${1:-}" = --demo ]; then
 			 counts: "frames drawn: on its disk, then on its volume"} as $all
 			| [$ARGS.positional[] | {(.): $all[.]}] | add' --args "$@"
 	}
-	# tell BIG SMALL [FOCUS [MARKS]]: what every page open on the wall
-	# shows: BIG, and SMALL under it; FOCUS the places framed, comma
-	# separated (none: the whole wall); MARKS laid over the one framed. With
-	# plain=true the tiles' names and counts are put away (the wordmark's
-	# title and the end), the numbers being what the rest is about.
+	# tell BIG SMALL [FOCUS [MARKS [CARD]]]: what every page open on the
+	# wall shows: BIG, and SMALL under it; FOCUS the places framed, comma
+	# separated (none: the whole wall); MARKS laid over the one framed; CARD
+	# a card beside it (the wall's demoCard, as JSON). With plain=true the
+	# tiles' names and counts are put away (the wordmark's title and the
+	# end), the numbers being what the rest is about.
 	plain=false
 	tell() {
 		local body
-		body=$(jq -cn --arg b "$1" --arg s "$2" --arg f "${3:-}" --argjson m "${4:-null}" --argjson p "$plain" \
-			'{big: $b, small: $s, focus: ($f | split(",") | map(select(. != "") | tonumber)), marks: $m, plain: $p}') || die "the demo's words did not make JSON: $1"
+		body=$(jq -cn --arg b "$1" --arg s "$2" --arg f "${3:-}" --argjson m "${4:-null}" --argjson p "$plain" --argjson c "${5:-null}" \
+			'{big: $b, small: $s, focus: ($f | split(",") | map(select(. != "") | tonumber)), marks: $m, plain: $p, card: $c}') || die "the demo's words did not make JSON: $1"
 		curl -sf -o /dev/null --max-time 2 -X POST --data-binary "$body" "$url/demo" || step "  the wall did not take the line: $1"
 		step "$1  |  $2"
+	}
+	# job_card KIND TARGET: the card of the newest vmx job of KIND on TARGET
+	# that ended well, its steps as vmx ran them, each with how long it took
+	# and what it does; nothing when vmx's list has none (it keeps its last
+	# 256 jobs, and a busy host moves past one in a minute).
+	# shellcheck disable=SC2016 # $kind, $target and $j are jq's, not the shell's
+	job_jq='
+		def ts: (.[0:19] + "Z" | fromdateiso8601) + ((.[19:] | capture("^\\.(?<f>[0-9]+)") // {f: "0"}) | "0." + .f | tonumber);
+		def gloss: {
+			"pool.room": ["the pool under its limit", "pool"],
+			"clone.snapshot": ["its disk and volumes, one moment", "disk"],
+			"microvm.dataset": ["a dataset for its disk", "disk"],
+			"microvm.clone": ["its disk, a ZFS clone", "disk"],
+			"microvm.record": ["its record: uid, MAC, tap", "record"],
+			"microvm.tap": ["its own network tap", "vm"],
+			"microvm.jail": ["its jail, read only", "vm"],
+			"microvm.run": ["Firecracker starts it", "vm"],
+			"microvm.intent": ["started with the host", "record"],
+			"microvm.halt": ["asked to shut down, stopped if it will not", "vm"],
+			"microvm.untap": ["its tap taken away", "vm"],
+			"microvm.unjail": ["its jail taken away", "vm"],
+			"microvm.destroy": ["its dataset and its disk destroyed", "disk"],
+			"microvm.forget": ["its record and seed removed", "record"],
+			"container.volumes": ["where its volumes live", "volume"],
+			"container.forwards": ["its ports, from the host", "vm"]
+		};
+		def note_of($n): if ($n | startswith("clone.volume.")) then "its volume, a ZFS clone"
+			elif ($n | startswith("container.volume.")) then "its volume, made for it" else (gloss[$n][0] // "") end;
+		def tone_of($n): if ($n | startswith("clone.volume.")) or ($n | startswith("container.volume.")) then "volume" else (gloss[$n][1] // "") end;
+		first(.jobs[] | select(.kind == $kind and .target == $target and .state == "done")) as $j
+		| [$j.log[] | select(.text | test("^\\[[0-9]+/[0-9]+\\] [^ ]+: (started|done)$"))
+			| {n: (.text | capture("^\\[[0-9]+/[0-9]+\\] (?<n>[^ ]+): ").n), w: (.text | capture(": (?<w>started|done)$").w), at: (.at | ts)}] as $ev
+		| [$ev | group_by(.n)[] | {n: .[0].n, s: (map(select(.w == "started"))[0].at), e: (map(select(.w == "done"))[0].at)} | select(.s != null and .e != null)] | sort_by(.s) as $steps
+		| {kind: "job",
+			title: ("job " + $j.id[0:8] + " · " + $j.kind + " · " + $j.target)[0:120],
+			rows: [$steps[0:12][] | {key: .n[0:48], note: note_of(.n), tone: tone_of(.n), secs: ((.e - .s) * 1000 | round / 1000)}],
+			foot: ("done in " + ((($j.finished | ts) - ($j.started | ts)) * 100 | round / 100 | tostring) + " s · a plan first, each step checked; a step that fails undoes the ones before it")}'
+	job_card() {
+		# No card is the one harmless end: vmx not answering, or the job gone
+		# from its list; the line is said without it.
+		vmx jobs --json 2>/dev/null | jq -c --arg kind "$1" --arg target "$2" "$job_jq" 2>/dev/null || true
+	}
+	# pipe_card NAME: the stages from the image to NAME's microVM, each as
+	# vmx and ZFS hold it now: the image, its digest and size; the golden
+	# NAME's disk is a ZFS clone of, and what it holds; NAME's own disk and
+	# what NAME wrote to it; NAME's microVM. Nothing when one is not read.
+	pipe_card() {
+		local img disk origin used gold
+		img=$(vmx container images --json 2>/dev/null | jq -c --arg i "${agent##*/}" '[.[] | select((.image | split("/") | last) == $i)][0] // empty' 2>/dev/null) || img=
+		IFS=$'\t' read -r disk origin used < <(zfs list -Hp -o name,origin,used -t volume 2>/dev/null | awk -F '\t' -v n="$1" '$1 ~ ("/vms/" n "/root$") { print; exit }') || disk=
+		[ -n "$img" ] && [ -n "$disk" ] && [[ $origin == *@* ]] || return 0
+		gold=$(zfs list -Hp -o referenced "$origin" 2>/dev/null) || return 0
+		jq -cn --argjson img "$img" --arg disk "$disk" --arg origin "$origin" --arg used "$(bytes "$used")" --arg gold "$(bytes "$gold")" --arg size "$(bytes "$(jq -r '.size_bytes' <<<"$img")")" --arg name "$1" '
+			{kind: "pipe", rows: [
+				{key: "OCI image", value: ($img.image | split("/") | last), note: ("the same image Docker runs · " + $img.digest[7:19] + " · " + $size), via: "imported once, every blob checked against its digest", tone: "image"},
+				{key: "ZFS golden", value: $origin, note: ("made once, read only: its layers one ext4, on a zvol, " + $gold), via: "zfs clone, one for each tile", tone: "disk"},
+				{key: "ZFS clone", value: $disk, note: ("this tile'"'"'s own disk: it holds what the tile wrote, " + $used), via: "booted", tone: "disk"},
+				{key: "Firecracker microVM", value: $name, note: "its own kernel, in its own jail, on its own tap", tone: "vm"}]}'
 	}
 	# said_like I WORDS SECS: whether place I's tile says something that
 	# starts with WORDS (what the keeper said of its last verb), within SECS.
@@ -786,6 +856,14 @@ if [ "${1:-}" = --demo ]; then
 	sleep "$hold"
 	tell "No container engine on the host." "no Docker, no containerd: vmx runs the image in a microVM; the volume is plain ZFS, no storage plugin" "$h" "$(marks container vm golden volume counts)"
 	sleep "$hold"
+	# From the image to the machine, each stage as vmx and ZFS hold it.
+	c=$(pipe_card "$hname")
+	if [ -n "$c" ]; then
+		tell "One container: an OCI image, on ZFS, in a Firecracker microVM." "the image Docker runs, made a ZFS golden once; this tile's disk a clone of it, booted with its own kernel" "$h" "$(marks container vm golden volume)" "$c"
+		sleep "$hold"
+	else
+		step "  no card: the image or $hname's disk was not read"
+	fi
 
 	# Deleted with nobody watching; the keeper; deleted again.
 	tell "Stop the keeper, and delete it." "\$ systemctl stop $keeper_unit; vmx container remove $hname" "$h"
@@ -811,6 +889,16 @@ if [ "${1:-}" = --demo ]; then
 		tell "Back by itself." "nothing pressed: whatever goes, the keeper runs again" "$h"
 	fi
 	sleep "$hold"
+	# The job the removal was, as vmx ran it. (The keeper's run back is no
+	# job of vmxd's to show: vmx container run carries out its plan in the
+	# command's own process, and vmx jobs does not list it.)
+	c=$(job_card "machine.container remove" "$hname")
+	if [ -n "$c" ]; then
+		tell "Every change is a job." "vmx container remove $hname, as vmx ran it: $(jq '.rows | length' <<<"$c") steps, each checked" "$h" "" "$c"
+		sleep "$hold"
+	else
+		step "  no card: vmx jobs lists no removal of $hname that ended"
+	fi
 
 	# A snapshot, and back to it.
 	tell "Snapshot it." "its disk and its volume, at one moment, in one ZFS call" "$h" "$(marks counts)"
@@ -846,7 +934,10 @@ if [ "${1:-}" = --demo ]; then
 	for big in "Double it." "And again."; do
 		have=$(state | jq '.tiles | length') || die "the wall did not say how it is"
 		mapfile -t all < <(seq 0 $((have - 1)))
-		tell "$big" "every tile cloned once: $have more microVMs, their disks and volumes ZFS clones, nothing copied"
+		# The page counts the new places itself as they come: asked, in hand,
+		# done.
+		q=$(jq -cn --argjson f "$have" '{kind: "queue", title: "the new places, as vmx works", from: $f, of: (2 * $f), foot: "each one a vmx job; a job holds what it touches, so two changes to one machine never run at once"}')
+		tell "$big" "every tile cloned once: $have more microVMs, their disks and volumes ZFS clones, nothing copied" "" "" "$q"
 		s0=$(date +%s%N)
 		press clone 1 "${all[@]}"
 		# Until every new place draws, or nothing has been in hand for three
@@ -869,7 +960,7 @@ if [ "${1:-}" = --demo ]; then
 		took=$(since "$s0")
 		doc=$(state) || doc='{}'
 		made_n=$(jq --argjson h "$have" '[.tiles[$h:][] | select(.v > 0 and .age_ms <= 2000)] | length' <<<"$doc")
-		tell "$big" "$(jq '.live' <<<"$doc") microVMs on one box: $made_n new ones drawing $took s after the press"
+		tell "$big" "$(jq '.live' <<<"$doc") microVMs on one box: $made_n new ones drawing $took s after the press" "" "" "$q"
 		sleep "$hold"
 	done
 	# What the host holds, as the keeper last read it, its own count of
@@ -932,11 +1023,23 @@ if [ "${1:-}" = --demo ]; then
 		sleep 0.2
 	done
 	sleep "$hold"
+	# One of those clones, as vmx ran it.
+	c=$(job_card "machine.container clone" "$hname")
+	if [ -n "$c" ]; then
+		tell "A clone is a job too." "vmx container clone $hname, as vmx ran it: $(jq '.rows | length' <<<"$c") steps, nothing copied" "" "" "$c"
+		sleep "$hold"
+	else
+		step "  no card: vmx jobs lists no clone of $hname that ended"
+	fi
 
 	# And the rest of it.
 	tell "Kubernetes? Yes." "it runs in machines on vmx; kbx, in alpha, builds the nodes for you"
 	sleep "$hold"
 	tell "And the host rolls back too." "every upgrade is a new boot environment; going back is choosing the old one"
+	sleep "$hold"
+	# The host's own screen, its keys as CONSOLES.md lists them.
+	tell "And on the host's own screen: jewm." "every machine at keyboard speed, through the same jobs as the API, the command and the text console" "" "" \
+		'{"kind":"keys","title":"jewm, the desktop","rows":[{"key":"Super","note":"every machine at once: the fly-through"},{"key":"Super+Tab","note":"the wall of every machine"},{"key":"w","note":"a machine'"'"'s screen, full size, with its sound"},{"key":"Super+Escape","note":"every key to the machine shown, its own Alt+Tab too"},{"key":"Super+v","note":"the clipboard into the machine"}]}'
 	sleep "$hold"
 	curl -sf -o /dev/null --max-time 2 -X POST "$url/show/vmx" || step "  the show did not go to the vmx intro"
 	plain=true
